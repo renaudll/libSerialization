@@ -1,5 +1,6 @@
 import logging as _logging
 import sys
+
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
 
@@ -9,7 +10,7 @@ TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX = range(4)
 
 def get_class_def(class_name, base_class=object):
     try:
-       for cls in base_class.__subclasses__():
+        for cls in base_class.__subclasses__():
             cls_path = get_class_namespace(cls)
             if cls_path == class_name:
                 return cls
@@ -18,7 +19,8 @@ def get_class_def(class_name, base_class=object):
                 if t is not None:
                     return t
     except Exception as e:
-        pass  # logging.info(str(e)) # TODO: FIX
+        pass
+        #logging.warning("Error obtaining class definition for {0}: {1}".format(class_name, e))
     return None
 
 
@@ -26,14 +28,14 @@ def create_class_instance(class_name):
     cls = get_class_def(class_name)
 
     if cls is None:
-        logging.warning("Can't find class definition '{0}'".format(class_name));
+        logging.warning("Can't find class definition '{0}'".format(class_name))
         return None
 
-    clsDef = getattr(sys.modules[cls.__module__], cls.__name__)
-    assert (clsDef is not None)
+    class_def = getattr(sys.modules[cls.__module__], cls.__name__)
+    assert (class_def is not None)
 
     try:
-        return clsDef()
+        return class_def()
     except Exception as e:
         logging.error("Fatal error creating '{0}' instance: {1}".format(class_name, str(e)))
         return None
@@ -43,10 +45,11 @@ def get_class_namespace(classe):
     if not isinstance(classe, object):
         return None  # Todo: throw exception
     tokens = []
-    while not classe is object:
+    while classe is not object:
         tokens.append(classe.__name__)
         classe = classe.__bases__[0]
     return '.'.join(reversed(tokens))
+
 
 #
 # Types definitions
@@ -72,6 +75,7 @@ except NameError:
     pass
     types_basic.append(str)
 
+
 def is_data_basic(_data):
     global types_basic
     return any(filter(lambda x: isinstance(_data, x), (iter(types_basic))))
@@ -87,6 +91,7 @@ def is_data_list(_data):
 
 types_dag = []
 
+
 def is_data_pymel(data):
     """
     Add pymel support.
@@ -94,18 +99,21 @@ def is_data_pymel(data):
     global types_dag
     return any(filter(lambda x: isinstance(data, x), iter(types_dag)))
 
-def get_data_type(data, *args, **kwargs):
+
+def get_data_type(data):
     if is_data_basic(data):
         return TYPE_BASIC
     if is_data_list(data):
         return TYPE_LIST
-    if is_data_pymel(data): # It is important to check pymel data before complex data since basically, pymel.PyNode and pymel.PyNode are complex datatypes themselfs.
+    # It is important to check pymel data before complex data since basically,
+    # pymel.PyNode and pymel.PyNode are complex datatypes themselfs.
+    if is_data_pymel(data):
         return TYPE_DAGNODE
     if is_data_complex(data):
         return TYPE_COMPLEX
 
-
     raise NotImplementedError("Unsupported object type {0} ({1})".format(data, type(data)))
+
 
 def export_dict(data, skip_None=True, recursive=True, **args):
     """
@@ -120,36 +128,35 @@ def export_dict(data, skip_None=True, recursive=True, **args):
     Returns: A dict instance containing only basic data types.
 
     """
-    ##logging.debug('[exportToBasicData]', _data)
-
-    sType = get_data_type(data)
+    data_type = get_data_type(data)
     # object instance
-    if sType == TYPE_COMPLEX:
-        dicReturn = {}
-        dicReturn['_class'] = get_class_namespace(data.__class__)
-        dicReturn['_uid'] = id(data)
+    if data_type == TYPE_COMPLEX:
+        data_dict = {
+            '_class': get_class_namespace(data.__class__),
+            '_uid': id(data)
+        }
         for key, val in (data.items() if isinstance(data, dict) else data.__dict__.items()):  # TODO: Clean
             if '_' not in key[0]:
                 if not skip_None or val is not None:
-                    if (sType == TYPE_COMPLEX and recursive is True) or sType == TYPE_LIST:
+                    if (data_type == TYPE_COMPLEX and recursive is True) or data_type == TYPE_LIST:
                         val = export_dict(val, skip_None=skip_None, recursive=recursive, **args)
                     if not skip_None or val is not None:
-                        dicReturn[key] = val
+                        data_dict[key] = val
 
-        return dicReturn
+        return data_dict
 
     # Handle other types of data
-    elif sType == TYPE_BASIC:
+    elif data_type == TYPE_BASIC:
         return data
 
     # Handle iterable
-    elif sType == TYPE_LIST:
+    elif data_type == TYPE_LIST:
         return [export_dict(v, skip_None=skip_None, **args) for v in data if not skip_None or v is not None]
 
-    elif sType == TYPE_DAGNODE:
+    elif data_type == TYPE_DAGNODE:
         return data
 
-    logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), sType, data))
+    logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
     return None
 
 
@@ -184,5 +191,3 @@ def import_dict(data, **args):
     # Handle other types of data
     else:
         return data
-
-

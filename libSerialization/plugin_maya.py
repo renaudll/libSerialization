@@ -1,14 +1,17 @@
-def is_valid_PyNode(val):
-    return val and hasattr(val, 'exists') and val.exists()
-
 import pymel.core as pymel
 from maya import OpenMaya
 import logging
+import core
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-import core
+
+def is_valid_PyNode(val):
+    return val and hasattr(val, 'exists') and val.exists()
+
+__all__ = ['export_network', 'import_network', 'getConnectedNetworks', 'getConnectedNetworksByHierarchy',
+           'getNetworksByClass', 'isNetworkInstanceOfClass']
 
 # Pymel compatibility implementation
 core.types_dag.append(pymel.PyNode)
@@ -16,239 +19,238 @@ core.types_dag.append(pymel.Attribute)
 core.types_dag.append(pymel.datatypes.Matrix)
 core.types_dag.append(pymel.datatypes.Vector)
 
-
 #
 # Maya Metanetwork Serialization
 #
 
-def _createAttribute(_name, _val):
-    if isinstance(_val, basestring):
+
+def create_attr(name, data):
+    if isinstance(data, basestring):
         fn = OpenMaya.MFnTypedAttribute()
-        fn.create(_name, _name, OpenMaya.MFnData.kString)
+        fn.create(name, name, OpenMaya.MFnData.kString)
         return fn
-    kType = type(_val)
-    if issubclass(kType, bool):
+    data_type = type(data)
+    if issubclass(data_type, bool):
         fn = OpenMaya.MFnNumericAttribute()
-        fn.create(_name, _name, OpenMaya.MFnNumericData.kBoolean)
+        fn.create(name, name, OpenMaya.MFnNumericData.kBoolean)
         return fn
-    if issubclass(kType, int):
+    if issubclass(data_type, int):
         fn = OpenMaya.MFnNumericAttribute()
-        fn.create(_name, _name, OpenMaya.MFnNumericData.kInt)
+        fn.create(name, name, OpenMaya.MFnNumericData.kInt)
         return fn
-    if issubclass(kType, float):
+    if issubclass(data_type, float):
         fn = OpenMaya.MFnNumericAttribute()
-        fn.create(_name, _name, OpenMaya.MFnNumericData.kFloat)
+        fn.create(name, name, OpenMaya.MFnNumericData.kFloat)
         return fn
-    if isinstance(_val, dict):
+    if isinstance(data, dict):
         fn = OpenMaya.MFnMessageAttribute()
-        fn.create(_name, _name)
+        fn.create(name, name)
         return fn
-    if isinstance(_val, list) or isinstance(type, tuple):
-        if len(_val) < 1:
-            pymel.warning("Can't create attribute {0}, empty array are unsuported".format(_name))
+    if isinstance(data, list) or isinstance(type, tuple):
+        if len(data) < 1:
+            pymel.warning("Can't create attribute {0}, empty array are unsuported".format(name))
             return None
         # TODO: Throw error when the array have multiple types
-        fn = _createAttribute(_name, _val[0])
+        fn = create_attr(name, data[0])
         fn.setArray(True)
         return fn
-    if issubclass(kType, pymel.datatypes.Matrix):  # HACK
+    if issubclass(data_type, pymel.datatypes.Matrix):  # HACK
         fn = OpenMaya.MFnMatrixAttribute()
-        fn.create(_name, _name)
+        fn.create(name, name)
         return fn
-    if issubclass(kType, pymel.datatypes.Vector):
-        name_x = '{0}X'.format(_name)
-        name_y = '{0}Y'.format(_name)
-        name_z = '{0}Z'.format(_name)
+    if issubclass(data_type, pymel.datatypes.Vector):
+        name_x = '{0}X'.format(name)
+        name_y = '{0}Y'.format(name)
+        name_z = '{0}Z'.format(name)
         fn = OpenMaya.MFnNumericAttribute()
-        moX = fn.create(name_x, name_x, OpenMaya.MFnNumericData.kDouble)
-        moY = fn.create(name_y, name_y, OpenMaya.MFnNumericData.kDouble)
-        moZ = fn.create(name_z, name_z, OpenMaya.MFnNumericData.kDouble)
-        fn.create(_name, _name, moX, moY, moZ)
+        mo_x = fn.create(name_x, name_x, OpenMaya.MFnNumericData.kDouble)
+        mo_y = fn.create(name_y, name_y, OpenMaya.MFnNumericData.kDouble)
+        mo_z = fn.create(name_z, name_z, OpenMaya.MFnNumericData.kDouble)
+        fn.create(name, name, mo_x, mo_y, mo_z)
         return fn
-    if issubclass(kType, pymel.Attribute):
-        if not is_valid_PyNode(_val):
-            log.warning("Can't serialize {0} attribute because of non-existent pymel Attribute!".format(_name))
+    if issubclass(data_type, pymel.Attribute):
+        if not is_valid_PyNode(data):
+            log.warning("Can't serialize {0} attribute because of non-existent pymel Attribute!".format(name))
             return None
-        elif _val.type() == 'doubleAngle':
+        elif data.type() == 'doubleAngle':
             fn = OpenMaya.MFnUnitAttribute()
-            fn.create(_name, _name, OpenMaya.MFnUnitAttribute.kAngle)
+            fn.create(name, name, OpenMaya.MFnUnitAttribute.kAngle)
             return fn
-        elif _val.type() == 'time':
+        elif data.type() == 'time':
             fn = OpenMaya.MFnUnitAttribute()
-            fn.create(_name, _name, OpenMaya.MFnUnitAttribute.kTime)
+            fn.create(name, name, OpenMaya.MFnUnitAttribute.kTime)
             return fn
         # elif _val.type() == '???':
         #    fn = OpenMaya.MFnUnitAttribute()
         #    fn.create(_name, _name, OpenMaya.MFnUnitAttribute.kDistance)
         #    return fn
-        # If the attribute doesn't represent anything special, we'll check it's value to know what attribute type to create.
+        # If the attribute doesn't represent anything special,
+        # we'll check it's value to know what attribute type to create.
         else:
-            return _createAttribute(_name, _val.get())
-    if hasattr(_val, '__melobject__'):  # TODO: Really usefull?
+            return create_attr(name, data.get())
+    if hasattr(data, '__melobject__'):  # TODO: Really usefull?
         fn = OpenMaya.MFnMessageAttribute()
-        fn.create(_name, _name)
+        fn.create(name, name)
         return fn
-    if hasattr(_val, '__dict__'):
+    if hasattr(data, '__dict__'):
         fn = OpenMaya.MFnMessageAttribute()
-        fn.create(_name, _name)
+        fn.create(name, name)
         return fn
-    pymel.error("Can't create MFnAttribute for {0} {1} {2}".format(_name, _val, kType))
+    pymel.error("Can't create MFnAttribute for {0} {1} {2}".format(name, data, data_type))
 
 
-def _addAttr(_fnDependNode, _sName, _pValue):
-    sType = core.get_data_type(_pValue)
+def add_attr(fnDependNode, name, data):
+    data_type = core.get_data_type(data)
 
     # Skip empty list
-    bIsMulti = sType == core.TYPE_LIST
-    if bIsMulti and len(_pValue) == 0:
+    is_multi = data_type == core.TYPE_LIST
+    if is_multi and len(data) == 0:
         return
 
     plug = None
     # Get attribute arguments
     try:  # TODO: Is a try/catch really the best way to know if the plug exists?
-        plug = _fnDependNode.findPlug(_sName)
+        plug = fnDependNode.findPlug(name)
     except:
         pass
 
     if plug is None:
-        fnAtt = _createAttribute(_sName, _pValue)
-        if fnAtt is None: return  # In case of invalid value like missing pymel PyNode & Attributes
-        fnAtt.setNiceNameOverride(_sName)
+        fnAtt = create_attr(name, data)
+        if fnAtt is None:
+            return  # In case of invalid value like missing pymel PyNode & Attributes
+        fnAtt.setNiceNameOverride(name)
         moAtt = fnAtt.object()
         if moAtt is not None:
             try:
-                _fnDependNode.addAttribute(moAtt)
-                plug = OpenMaya.MPlug(_fnDependNode.object(), moAtt)
+                fnDependNode.addAttribute(moAtt)
+                plug = OpenMaya.MPlug(fnDependNode.object(), moAtt)
             except Exception as e:
-                log.warning('Error adding attribute {0}: {1}'.format(_sName, e))
-
+                log.warning('Error adding attribute {0}: {1}'.format(name, e))
 
     if plug is not None:
-        _setAttr(plug, _pValue)
+        set_attr(plug, data)
 
 
-def _setAttr(_plug, _val):
-    sType = core.get_data_type(_val)
-    if sType == core.TYPE_LIST:
-        iNumElements = len(_val)
+def set_attr(_plug, data):
+    data_type = core.get_data_type(data)
+    if data_type == core.TYPE_LIST:
+        num_elements = len(data)
 
-        _plug.setNumElements(iNumElements)  # TODO: MAKE IT WORK # TODO: NECESSARY???
+        _plug.setNumElements(num_elements)  # TODO: MAKE IT WORK # TODO: NECESSARY???
 
-        for i in range(iNumElements):
-            _setAttr(_plug.elementByLogicalIndex(i), _val[i])
+        for i in range(num_elements):
+            set_attr(_plug.elementByLogicalIndex(i), data[i])
 
-    elif sType == core.TYPE_BASIC:
+    elif data_type == core.TYPE_BASIC:
         # Basic types
-        if isinstance(_val, bool):
-            _plug.setBool(_val)
-        elif isinstance(_val, int):
-            _plug.setInt(_val)
-        elif isinstance(_val, float):
-            _plug.setFloat(_val)
-        elif isinstance(_val, basestring):
-            _plug.setString(_val)
-        elif isinstance(_val, pymel.datatypes.Matrix):
+        if isinstance(data, bool):
+            _plug.setBool(data)
+        elif isinstance(data, int):
+            _plug.setInt(data)
+        elif isinstance(data, float):
+            _plug.setFloat(data)
+        elif isinstance(data, basestring):
+            _plug.setString(data)
+        elif isinstance(data, pymel.datatypes.Matrix):
             fn = OpenMaya.MFnMatrixData()
-            mo = fn.create(_val.apicls(_val))
+            mo = fn.create(data.apicls(data))
             _plug.setMObject(mo)
             # pymel.Attribute(_plug).set(_val)
 
-    elif sType == core.TYPE_COMPLEX:
-        network = export_network(_val)
-        plugMessage = network.__apimfn__().findPlug('message')
+    elif data_type == core.TYPE_COMPLEX:
+        network = export_network(data)
+        plug = network.__apimfn__().findPlug('message')
 
         # Use a dag modifier to connect the attribute. TODO: Is this really the best way?
         dagM = OpenMaya.MDagModifier()
-        dagM.connect(plugMessage, _plug)
+        dagM.connect(plug, _plug)
         dagM.doIt()
 
-    elif sType == core.TYPE_DAGNODE:
+    elif data_type == core.TYPE_DAGNODE:
         plug = None
-        if isinstance(_val, pymel.Attribute):  # pymel.Attribute
+        if isinstance(data, pymel.Attribute):  # pymel.Attribute
             # Hack: Don't crash with non-existent pymel.Attribute
-            if not _val.exists():
-                log.warning("Can't setAttr, Attribute {0} don't exist".format(_val))
+            if not data.exists():
+                log.warning("Can't setAttr, Attribute {0} don't exist".format(data))
                 return
-            plug = _val.__apimfn__()
-        elif isinstance(_val, pymel.datatypes.Vector):
-            _plug.child(0).setFloat(_val.x)
-            _plug.child(1).setFloat(_val.y)
-            _plug.child(2).setFloat(_val.z)
+            plug = data.__apimfn__()
+        elif isinstance(data, pymel.datatypes.Vector):
+            _plug.child(0).setFloat(data.x)
+            _plug.child(1).setFloat(data.y)
+            _plug.child(2).setFloat(data.z)
             return True
-        elif hasattr(_val, 'exists'):  # pymel.PyNode
+        elif hasattr(data, 'exists'):  # pymel.PyNode
             # Hack: Don't crash with non-existent pymel.Attribute
-            if not pymel.objExists(_val.__melobject__()):
-                log.warning("Can't setAttr, PyNode {0} don't exist".format(_val))
+            if not pymel.objExists(data.__melobject__()):
+                log.warning("Can't setAttr, PyNode {0} don't exist".format(data))
                 return
-            plug = _val.__apimfn__().findPlug('message')
+            plug = data.__apimfn__().findPlug('message')
 
         if plug is not None:
             dagM = OpenMaya.MDagModifier()
             # if pymel.attributeQuery(pymel.Attribute(_val), writable=True):
             dagM.connect(plug, _plug)
-            '''
-            else:
-                dagM.connect(_plug, plug)
-            '''
-            dagM.connect(plug, _plug)
+            dagM.connect(plug, _plug)  # is connecting two times necessary?
             dagM.doIt()
         else:
-            raise Exception("Unknow TYPE {0}, {1}".format(type(_val), _val))
+            raise Exception("Unknow TYPE {0}, {1}".format(type(data), data))
 
     else:
-        print _val, sType
+        print data, data_type
         raise NotImplementedError
 
 
-def _getNetworkAttr(_att):
+def get_network_attr(attr):
     # Recursive
-    if _att.isMulti():
-        return [_getNetworkAttr(_att.elementByPhysicalIndex(i)) for i in range(_att.numElements())]
+    if attr.isMulti():
+        return [get_network_attr(attr.elementByPhysicalIndex(i)) for i in range(attr.numElements())]
 
-    if _att.type() == 'message':
-        if not _att.isConnected():
-            log.warning('[_getNetworkAttr] Un-connected message attribute, skipping {0}'.format(_att))
+    if attr.type() == 'message':
+        if not attr.isConnected():
+            log.warning('[_getNetworkAttr] Un-connected message attribute, skipping {0}'.format(attr))
             return None
-        oInput = _att.inputs()[0]
+        attr_input = attr.inputs()[0]
         # Network
-        if hasattr(oInput, '_class'):
-            return import_network(oInput)
+        if hasattr(attr_input, '_class'):
+            return import_network(attr_input)
         # Node
         else:
-            return oInput
+            return attr_input
 
     # pymel.Attribute
-    if _att.isConnected():
-        return _att.inputs(plugs=True)[0]
+    if attr.isConnected():
+        return attr.inputs(plugs=True)[0]
 
     # Basic type
-    return _att.get()
+    return attr.get()
 
 
-def export_network(_data, **kwargs):
-    log.debug('CreateNetwork {0}'.format(_data))
+def export_network(data, **kwargs):
+    log.debug('CreateNetwork {0}'.format(data))
 
     # We'll deal with two additional attributes, '_network' and '_uid'.
     # Thoses two attributes allow us to find the network from the value and vice-versa.
-    # Note that since the '_uid' refer to the current python context, it's value could be erroned when calling import_network.
-    # However the change of collisions are extremely improbable so checking the type of the python variable is sufficient.
+    # Note that since the '_uid' refer to the current python context,
+    # it's value could be erroned when calling import_network.
+    # However the change of collisions are extremely improbable so checking the type of the python variable
+    # is sufficient.
     # Please feel free to provide a better design if any if possible.
 
     # Optimisation: Use existing network if already present in scene
-    if hasattr(_data, '_network') and is_valid_PyNode(_data._network):
-        network = _data._network
+    if hasattr(data, '_network') and is_valid_PyNode(data._network):
+        network = data._network
     else:
         # Automaticly name network whenever possible
-        if hasattr(_data, '__getNetworkName__') and _data.__getNetworkName__ is None:
-            networkName = _data.__class__.__name__
+        if hasattr(data, '__getNetworkName__') and data.__getNetworkName__ is None:
+            network_name = data.__class__.__name__
         else:
-            networkName = _data.__getNetworkName__() if hasattr(_data,
-                                                                '__getNetworkName__') else _data.__class__.__name__
-        network = pymel.createNode('network', name=networkName)
+            network_name = data.__getNetworkName__() if hasattr(data,
+                                                                '__getNetworkName__') else data.__class__.__name__
+        network = pymel.createNode('network', name=network_name)
 
         # Monkey patch the network in a _network attribute if supported.
-        if isinstance(_data, object) and not isinstance(_data, dict):
-            _data._network = network
+        if isinstance(data, object) and not isinstance(data, dict):
+            data._network = network
 
     # Ensure the network have the current python id stored
     if not network.hasAttr('_uid'):
@@ -256,37 +258,37 @@ def export_network(_data, **kwargs):
     #    network._uid.set(id(_data))
 
     # Convert _pData to basic data dictionary (recursive for now)
-    dicData = core.export_dict(_data, recursive=False, **kwargs)
-    assert (isinstance(dicData, dict))
+    data_dict = core.export_dict(data, recursive=False, **kwargs)
+    assert (isinstance(data_dict, dict))
 
     fnNet = network.__apimfn__()
-    for key, val in dicData.items():
+    for key, val in data_dict.items():
         if val is not None:
             if key == '_class' or key[0] != '_':  # Attributes starting with '_' are protected or private
-                _addAttr(fnNet, key, val)
+                add_attr(fnNet, key, val)
 
     return network
 
 
 # todo: add an optimisation to prevent recreating the python variable if it already exist.
-def import_network(_network):
-    if not _network.hasAttr('_class'):
+def import_network(network):
+    if not network.hasAttr('_class'):
         log.error('[importFromNetwork] Network dont have mandatory attribute _class')
         raise AttributeError
 
-    cls = _network.getAttr('_class')
+    cls = network.getAttr('_class')
     obj = core.create_class_instance(cls)
     if obj is None:
         return None
     # Monkey patch the network if supported
     if isinstance(obj, object) and not isinstance(obj, dict):
-        obj._network = _network
+        obj._network = network
 
     # Resolve wich attribute we'll want to import
     attrs_by_longname = {}
-    for attr_name in pymel.listAttr(_network, userDefined=True):
+    for attr_name in pymel.listAttr(network, userDefined=True):
         if '_' != attr_name[0]:  # Attribute longName starting with '_' are considered private
-            attrs_by_longname[attr_name] = _network.attr(attr_name)
+            attrs_by_longname[attr_name] = network.attr(attr_name)
 
     # Filter compound children as we are only interested the compound value itself.
     # ex: import translate and skip translateX, translateY, translateZ
@@ -301,7 +303,7 @@ def import_network(_network):
 
     for attr_name, attr in attrs_by_longname.iteritems():
         # logging.debug('Importing attribute {0} from {1}'.format(key, _network.name()))
-        val = _getNetworkAttr(attr)
+        val = get_network_attr(attr)
         # if hasattr(obj, key):
         if isinstance(obj, dict):
             obj[attr_name.longName()] = val
@@ -326,14 +328,15 @@ def getNetworksByClass(_clsName):
 
 
 # TODO: benchmark with sets
-def getConnectedNetworks(_objs, key=None, recursive=True, inArray=None):
-    if inArray is None:  # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
+def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
+    # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
+    if inArray is None:
         inArray = []
 
-    if not hasattr(_objs, '__iter__'):
-        _objs = [_objs]
+    if not hasattr(objs, '__iter__'):
+        objs = [objs]
 
-    for obj in _objs:
+    for obj in objs:
         if hasattr(obj, 'message'):
             for output in obj.message.outputs():
                 if isinstance(output, pymel.nodetypes.Network):

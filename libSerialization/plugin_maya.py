@@ -227,7 +227,7 @@ def get_network_attr(attr):
 
 
 def export_network(data, **kwargs):
-    log.debug('CreateNetwork {0}'.format(data))
+    #log.debug('CreateNetwork {0}'.format(data))
 
     # We'll deal with two additional attributes, '_network' and '_uid'.
     # Thoses two attributes allow us to find the network from the value and vice-versa.
@@ -242,11 +242,11 @@ def export_network(data, **kwargs):
         network = data._network
     else:
         # Automaticly name network whenever possible
-        if hasattr(data, '__getNetworkName__') and data.__getNetworkName__ is None:
+        try:
+            network_name = data.__getNetworkName__()
+        except (AttributeError, TypeError):
             network_name = data.__class__.__name__
-        else:
-            network_name = data.__getNetworkName__() if hasattr(data,
-                                                                '__getNetworkName__') else data.__class__.__name__
+
         network = pymel.createNode('network', name=network_name)
 
         # Monkey patch the network in a _network attribute if supported.
@@ -316,6 +316,13 @@ def import_network(network):
         # Update network _uid to the current python variable context
         #    if _network.hasAttr('_uid'):
         #        _network._uid.set(id(obj))
+
+    # Hack: Find implemented class via duck-typing
+    # Implement a __callbackNetworkPostBuild__ method in your class instances as a callback.
+    try:
+        obj.__callbackNetworkPostBuild__()
+    except (AttributeError, TypeError):
+        pass
 
     return obj
 

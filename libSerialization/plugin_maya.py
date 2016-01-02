@@ -151,10 +151,6 @@ def set_attr(_plug, data):
             _plug.setFloat(data)
         elif isinstance(data, basestring):
             _plug.setString(data)
-        elif isinstance(data, pymel.datatypes.Matrix):
-            fn = OpenMaya.MFnMatrixData()
-            mo = fn.create(data.apicls(data))
-            _plug.setMObject(mo)
             # pymel.Attribute(_plug).set(_val)
 
     elif data_type == core.TYPE_COMPLEX:
@@ -174,6 +170,11 @@ def set_attr(_plug, data):
                 log.warning("Can't setAttr, Attribute {0} don't exist".format(data))
                 return
             plug = data.__apimfn__()
+        elif isinstance(data, pymel.datatypes.Matrix):
+            fn = OpenMaya.MFnMatrixData()
+            mo = fn.create(data.apicls(data))
+            _plug.setMObject(mo)
+            return True
         elif isinstance(data, pymel.datatypes.Vector):
             _plug.child(0).setFloat(data.x)
             _plug.child(1).setFloat(data.y)

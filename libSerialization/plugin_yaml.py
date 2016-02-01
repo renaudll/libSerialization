@@ -1,25 +1,58 @@
-# def export_yaml(data, **kwargs):
-#    dicData = _export_basicData(data)
-#    return yaml.dump(dicData, **kwargs)
+import yaml
+import os
+import core
 
-# def export_yaml_file(data, path, mkdir=True, **kwargs):
-#    if mkdir: _handle_dir_creation(path)
 
-#    dicData = _export_basicData(data)
+class YamlSerializer(core.DictSerializer):
+    def export_yaml(self, data, **kwargs):
+        data_dict = self.export_dict(data)
+        return yaml.dump(data_dict, **kwargs)
 
-#    with open(path, 'w') as fp:
-#        yaml.dump(dicData, fp)
+    def export_yaml_file(self, data, path, mkdir=True, **kwargs):
+        if mkdir:
+            core.mkdir(path)
 
-#    return True
+        data_dict = self.export_dict(data)
 
-# def import_yaml(str_, **kwargs):
-#    dicData = yaml.load(str_)
-#    return _import_basicData(dicData)
+        with open(path, 'w') as fp:
+            yaml.dump(data_dict, fp)
 
-# def import_yaml_file(path, **kwargs):
-#    if not os.path.exists(path):
-#        raise Exception("Can't importFromYamlFile, file does not exist! {0}".format(path))
+        return True
 
-#    with open(path, 'r') as fp:
-#        dicData = yaml.load(fp)
-#        return _import_basicData(dicData)
+    def import_yaml(self, str_, **kwargs):
+        dicData = yaml.load(str_)
+        return self.import_dict(dicData)
+
+    def import_yaml_file(self, path, **kwargs):
+        if not os.path.exists(path):
+            raise Exception("Can't importFromYamlFile, file does not exist! {0}".format(path))
+
+        with open(path, 'r') as fp:
+            data_dict = yaml.load(fp)
+            return self.import_dict(data_dict)
+
+#
+# Global methods
+#
+__all__ = ['export_json', 'export_json_file', 'import_json', 'import_json_file']
+singleton = YamlSerializer()
+
+
+def export_yaml(*args, **kwargs):
+    global singleton
+    singleton.export_yaml(*args, **kwargs)
+
+
+def export_yaml_file(*args, **kwargs):
+    global singleton
+    singleton.export_yaml_file(*args, **kwargs)
+
+
+def import_yaml(*args, **kwargs):
+    global singleton
+    singleton.import_yaml(*args, **kwargs)
+
+
+def import_yaml_file(*args, **kwargs):
+    global singleton
+    singleton.import_yaml_file(*args, **kwargs)

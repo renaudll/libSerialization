@@ -1,11 +1,10 @@
-import logging as _logging
+import os
 import sys
+import consts
+import logging as _logging
 
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
-
-# constants
-TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX = range(4)
 
 
 def get_class_def(class_name, base_class=object):
@@ -51,143 +50,151 @@ def get_class_namespace(classe):
     return '.'.join(reversed(tokens))
 
 
-#
-# Types definitions
-# Type affect how the data is read & writen.
-# By using global variables, we allow any script to hook itself in the module.
-#
+class DictSerializer(object):
+    #
+    # Define basic datatypes
+    #
 
-# We consider a data complex if it's a class instance.
-# Note: We check for __dict__ because isinstance(_data, object) return True for basic types.
-types_complex = [dict]
+    TYPES_BASIC = [int, float, bool]
 
+    # Python3 support
+    try:
+        TYPES_BASIC.append(basestring)
+    except NameError:
+        pass
+        TYPES_BASIC.append(str)
 
-def is_data_complex(_data):
-    return any(filter(lambda x: isinstance(_data, x), (iter(types_complex)))) or hasattr(_data, '__dict__')
+    def is_data_basic(self, _data):
+        global TYPES_BASIC
+        return any(filter(lambda x: isinstance(_data, x), (iter(TYPES_BASIC))))
 
+    #
+    # Define list datatypes
+    #
 
-types_basic = [int, float, bool]
+    TYPES_LIST = [list, tuple]
 
-# Python3 support
-try:
-    types_basic.append(basestring)
-except NameError:
-    pass
-    types_basic.append(str)
+    def is_data_list(self, _data):
+        global TYPES_LIST
+        return any(filter(lambda x: isinstance(_data, x), (iter(TYPES_LIST))))
 
+    #
+    # Define complex datatypes
+    #
 
-def is_data_basic(_data):
-    global types_basic
-    return any(filter(lambda x: isinstance(_data, x), (iter(types_basic))))
+    # We consider a data complex if it's a class instance.
+    # Note: We check for __dict__ because isinstance(_data, object) return True for basic types.
+    TYPES_COMPLEX = [dict]
 
+    def is_data_complex(self, _data):
+        return any(filter(lambda x: isinstance(_data, x), (iter(self.TYPES_COMPLEX)))) or hasattr(_data, '__dict__')
 
-types_list = [list, tuple]
+    def get_data_type(self, data):
+        if self.is_data_basic(data):
+            return consts.DataTypes.TYPE_BASIC
+        if self.is_data_list(data):
+            return consts.DataTypes.TYPE_LIST
+        if self.is_data_complex(data):
+            return consts.DataTypes.TYPE_COMPLEX
 
+        raise IOError("Unsupported object type {0} ({1})".format(data, type(data)))
 
-def is_data_list(_data):
-    global types_list
-    return any(filter(lambda x: isinstance(_data, x), (iter(types_list))))
+    def export_dict(self, data, skip_None=True, recursive=True, **args):
+        """
+        Export an object instance (data) into a dictionary of basic data types (including pymel.Pynode and pymel.Attribute).
 
+        Args:
+            data: An instance of the build-in python class object.
+            skip_None: Don't store an attribute if is value is None.
+            recursive: Export recursively embedded instances of object in (excluding protected and private properties).
+            **args:
 
-types_dag = []
+        Returns: A dict instance containing only basic data types.
 
-
-def is_data_pymel(data):
-    """
-    Add pymel support.
-    """
-    global types_dag
-    return any(filter(lambda x: isinstance(data, x), iter(types_dag)))
-
-
-def get_data_type(data):
-    if is_data_basic(data):
-        return TYPE_BASIC
-    if is_data_list(data):
-        return TYPE_LIST
-    # It is important to check pymel data before complex data since basically,
-    # pymel.PyNode and pymel.PyNode are complex datatypes themselfs.
-    if is_data_pymel(data):
-        return TYPE_DAGNODE
-    if is_data_complex(data):
-        return TYPE_COMPLEX
-
-    raise NotImplementedError("Unsupported object type {0} ({1})".format(data, type(data)))
-
-
-def export_dict(data, skip_None=True, recursive=True, **args):
-    """
-    Export an object instance (data) into a dictionary of basic data types (including pymel.Pynode and pymel.Attribute).
-
-    Args:
-        data: An instance of the build-in python class object.
-        skip_None: Don't store an attribute if is value is None.
-        recursive: Export recursively embedded instances of object in (excluding protected and private properties).
-        **args:
-
-    Returns: A dict instance containing only basic data types.
-
-    """
-    data_type = get_data_type(data)
-    # object instance
-    if data_type == TYPE_COMPLEX:
-        data_dict = {
-            '_class': get_class_namespace(data.__class__),
-            '_uid': id(data)
-        }
-        for key, val in (data.items() if isinstance(data, dict) else data.__dict__.items()):  # TODO: Clean
-            if '_' not in key[0]:
-                if not skip_None or val is not None:
-                    if (data_type == TYPE_COMPLEX and recursive is True) or data_type == TYPE_LIST:
-                        val = export_dict(val, skip_None=skip_None, recursive=recursive, **args)
+        """
+        data_type = self.get_data_type(data)
+        # object instance
+        if data_type == consts.DataTypes.TYPE_COMPLEX:
+            data_dict = {
+                '_class': get_class_namespace(data.__class__),
+                '_uid': id(data)
+            }
+            for key, val in (data.items() if isinstance(data, dict) else data.__dict__.items()):  # TODO: Clean
+                if '_' not in key[0]:
                     if not skip_None or val is not None:
-                        data_dict[key] = val
+                        if (data_type == consts.DataTypes.TYPE_COMPLEX and recursive is True) or data_type == consts.DataTypes.TYPE_LIST:
+                            val = self.export_dict(val, skip_None=skip_None, recursive=recursive, **args)
+                        if not skip_None or val is not None:
+                            data_dict[key] = val
 
-        return data_dict
+            return data_dict
 
-    # Handle other types of data
-    elif data_type == TYPE_BASIC:
-        return data
+        # Handle other types of data
+        elif data_type == consts.DataTypes.TYPE_BASIC:
+            return data
 
-    # Handle iterable
-    elif data_type == TYPE_LIST:
-        return [export_dict(v, skip_None=skip_None, **args) for v in data if not skip_None or v is not None]
+        # Handle iterable
+        elif data_type == consts.DataTypes.TYPE_LIST:
+            return [self.export_dict(v, skip_None=skip_None, **args) for v in data if not skip_None or v is not None]
 
-    elif data_type == TYPE_DAGNODE:
-        return data
+        elif data_type == consts.DataTypes.TYPE_DAGNODE:
+            return data
 
-    logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
-    return None
+        logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
+        return None
+
+    def import_dict(self, data, **args):
+        """
+        Rebuild any instance of a python object instance that have been serialized using export_dict.
+
+        Args:
+            _data: A dict instance containing only basic data types.
+            **args:
+
+        Returns:
+
+        """
+        assert (data is not None)
+        if isinstance(data, dict) and '_class' in data:
+            # Handle Serializable object
+            class_path = data['_class']
+            class_name = class_path.split('.')[-1]
+            instance = create_class_instance(class_name)
+            if instance is None or not isinstance(instance, object):
+                logging.error("Can't create class instance for {0}, did you import to module?".format(class_path))
+                # TODO: Log error
+                return None
+            for key, val in data.items():
+                if key != '_class':
+                    instance.__dict__[key] = self.import_dict(val, **args)
+            return instance
+        # Handle array
+        elif self.is_data_list(data):
+            return [self.import_dict(v, **args) for v in data]
+        # Handle other types of data
+        else:
+            return data
+
+# TODO: Move to a lib?
+def mkdir(path):
+    path_dir = os.path.dirname(path)
+
+    # Create destination folder if needed
+    if not os.path.exists(path_dir):
+        os.makedirs(path_dir)
+
+#
+# Global methods
+#
+__all__ = ['export_dict', 'import_dict']
+singleton = DictSerializer()
 
 
-def import_dict(data, **args):
-    """
-    Rebuild any instance of a python object instance that have been serialized using export_dict.
+def export_dict(*args, **kwargs):
+    global singleton
+    singleton.export_dict(*args, **kwargs)
 
-    Args:
-        _data: A dict instance containing only basic data types.
-        **args:
 
-    Returns:
-
-    """
-    assert (data is not None)
-    if isinstance(data, dict) and '_class' in data:
-        # Handle Serializable object
-        class_path = data['_class']
-        class_name = class_path.split('.')[-1]
-        instance = create_class_instance(class_name)
-        if instance is None or not isinstance(instance, object):
-            logging.error("Can't create class instance for {0}, did you import to module?".format(class_path))
-            # TODO: Log error
-            return None
-        for key, val in data.items():
-            if key != '_class':
-                instance.__dict__[key] = import_dict(val, **args)
-        return instance
-    # Handle array
-    elif is_data_list(data):
-        return [import_dict(v, **args) for v in data]
-    # Handle other types of data
-    else:
-        return data
+def import_dict(*args, **kwargs):
+    global singleton
+    singleton.import_dict(*args, **kwargs)

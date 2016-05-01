@@ -16,9 +16,16 @@ class PymelJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, pymel.PyNode):
             return {'_class_pymel':'pymel.PyNode', '__melobject__': o.__melobject__()}
-        if isinstance(o, pymel.Attribute):
+        elif isinstance(o, pymel.Attribute):
             return {'_class_pymel':'pymel.Attribute', '__melobject__': o.__melobject__()}
-        return super(PymelJSONEncoder, self).default(o)
+        elif isinstance(o, pymel.datatypes.Matrix):
+            return {'_class_pymel':'pymel.datatypes.Matrix', '__melobject__': o.__melobject__()}
+        elif isinstance(o, pymel.datatypes.Vector):
+            return {'_class_pymel':'pymel.datatypes.Vector', '__melobject__': [o.x, o.y, o.z]}
+        elif isinstance(o, pymel.datatypes.Point):
+            return {'_class_pymel':'pymel.datatypes.Point', '__melobject__': [o.w, o.x, o.y, o.z]}
+        else:
+            return super(PymelJSONEncoder, self).default(o)
 
 
 # TODO: Add support for matrix and vector datatypes
@@ -35,16 +42,25 @@ class PymelJSONDecoder(json.JSONDecoder):
             elif cls == 'pymel.Attribute':
                 dagpath = val.get('__melobject__')
                 val = pymel.Attribute(dagpath) if cmds.objExists(dagpath) else None  # TODO: add warning?
+            elif cls == 'pymel.datatypes.Matrix':
+                melval = val.get('__melobject__')
+                val = pymel.datatypes.Matrix(melval)
+            elif cls == 'pymel.datatypes.Vector':
+                coords = val.get('__melobject__')
+                val = pymel.datatypes.Vector(coords)
+            elif cls == 'pymel.datatypes.Point':
+                coords = val.get('__melobject__')
+                val = pymel.datatypes.Point(coords)
         return val
 
-def export_json_maya(self, *args, **kwargs):
+def export_json_maya(*args, **kwargs):
     return export_json(cls=PymelJSONEncoder, *args, **kwargs)
 
-def export_json_file_maya(self,*args, **kwargs):
+def export_json_file_maya(*args, **kwargs):
     return export_json_file(cls=PymelJSONEncoder, *args, **kwargs)
 
-def import_json_maya(self, *args, **kwargs):
+def import_json_maya(*args, **kwargs):
     return import_json(cls=PymelJSONDecoder, *args, **kwargs)
 
-def import_json_file_maya(self, *args, **kwargs):
+def import_json_file_maya(*args, **kwargs):
     return import_json_file(cls=PymelJSONDecoder, *args, **kwargs)

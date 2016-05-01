@@ -1,5 +1,7 @@
 import logging as _logging
 import sys
+import collections
+import functools
 import inspect
 
 logging = _logging.getLogger()
@@ -64,7 +66,7 @@ def iter_module_subclasses_recursive(cls, module_root):
         if module_root == cur_module_root:
             yield sub_cls
 
-memoized
+#memoized
 def find_class_by_name(class_name, base_class=object, module=None):
     if module is None:
         iterator = iter_subclasses_recursive(base_class)
@@ -94,23 +96,17 @@ def find_class_by_namespace(class_namespace, base_class=object, module=None):
     return None
 
 
-def create_class_instance(class_name):
+def create_class_instance(cls):
     """
     Create a class instance using the latest definition.
     """
-    cls = find_class_by_namespace(class_name)
-
-    if cls is None:
-        logging.warning("Can't find class definition '{0}'".format(class_name))
-        return None
-
     class_def = getattr(sys.modules[cls.__module__], cls.__name__)
     assert (class_def is not None)
 
     try:
         return class_def()
     except Exception as e:
-        logging.error("Fatal error creating '{0}' instance: {1}".format(class_name, str(e)))
+        logging.error("Fatal error creating '{0}' instance: {1}".format(cls, str(e)))
         return None
 
 def get_class_namespace(classe):
@@ -252,23 +248,39 @@ def import_dict(data, **args):
     Returns:
 
     """
-    assert (data is not None)
+    #assert (data is not None)
     if isinstance(data, dict) and '_class' in data:
         # Handle Serializable object
-        class_path = data['_class']
-        class_name = class_path.split('.')[-1]
-        instance = create_class_instance(class_name)
-        if instance is None or not isinstance(instance, object):
-            logging.error("Can't create class instance for {0}, did you import to module?".format(class_path))
-            # TODO: Log error
+        cls_path = data['_class']
+        cls_name = cls_path.split('.')[-1]
+        cls_module = data.get('_class_module', None)
+        #cls_namespace = data.get('_class_namespace')
+
+        # HACK: Previously we were storing the complete class namespace.
+        # However this was not very flexible when we played with the class hierarchy.
+        # If we find a '_class_module' attribute, it mean we are doing thing the new way.
+        # Otherwise we'll let it slip for now.
+
+        if cls_module:
+            cls_def = find_class_by_name(cls_name, module=cls_module)
+        else:
+            cls_def = find_class_by_namespace(cls_name)
+
+        if cls_def is None:
+            logging.error("Can't create class instance for {0}, did you import to module?".format(cls_path))
             return None
+
+        instance = create_class_instance(cls_def)
+
         for key, val in data.items():
             if key != '_class':
                 instance.__dict__[key] = import_dict(val, **args)
         return instance
+
     # Handle array
     elif is_data_list(data):
         return [import_dict(v, **args) for v in data]
+
     # Handle other types of data
     else:
         return data

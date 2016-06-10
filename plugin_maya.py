@@ -203,10 +203,10 @@ def set_attr(_plug, data):
         raise NotImplementedError
 
 
-def get_network_attr(attr):
+def get_network_attr(attr, cache=None):
     # Recursive
     if attr.isMulti():
-        return [get_network_attr(attr.elementByPhysicalIndex(i)) for i in range(attr.numElements())]
+        return [get_network_attr(attr.elementByPhysicalIndex(i), cache=cache) for i in range(attr.numElements())]
 
     if attr.type() == 'message':
         if not attr.isConnected():
@@ -215,7 +215,7 @@ def get_network_attr(attr):
         attr_input = attr.inputs()[0]
         # Network
         if hasattr(attr_input, '_class'):
-            return import_network(attr_input, clear_cache=False)
+            return import_network(attr_input, cache=cache)
         # Node
         else:
             return attr_input
@@ -287,9 +287,9 @@ def export_network(data, **kwargs):
 
 
 # todo: add an optimisation to prevent recreating the python variable if it already exist.
-def import_network(network, clear_cache=True):
-    if clear_cache:
-        core.find_class_by_name.cache = {}
+def import_network(network, cache=None, **kwargs):
+    if cache is None:
+        cache = core.get_cls_cache(**kwargs)
 
     # Duck-type the network, if the '_class' attribute exist, it is a class instance representation.
     # Otherwise it is a simple pymel.PyNode datatypes.
@@ -338,7 +338,7 @@ def import_network(network, clear_cache=True):
 
     for attr_name, attr in attrs_by_longname.iteritems():
         # logging.debug('Importing attribute {0} from {1}'.format(key, _network.name()))
-        val = get_network_attr(attr)
+        val = get_network_attr(attr, cache=cache)
         # if hasattr(obj, key):
         if isinstance(obj, dict):
             obj[attr_name.longName()] = val

@@ -2,7 +2,6 @@ import logging as _logging
 import sys
 import collections
 import functools
-import inspect
 
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
@@ -60,19 +59,19 @@ def get_class_module_root(cls):
     return next(iter(cls.__module__.split('.')), None)
 
 
-def iter_module_subclasses_recursive(cls, module_root):
+def iter_module_subclasses_recursive(module_root, cls):
     for sub_cls in iter_subclasses_recursive(cls):
         cur_module_root = get_class_module_root(sub_cls)
         if module_root == cur_module_root:
             yield sub_cls
 
-#memoized
+@memoized
 def find_class_by_name(class_name, base_class=object, module=None):
     if module is None:
         iterator = iter_subclasses_recursive(base_class)
     else:
         #module = sys.modules[module]
-        iterator = iter_module_subclasses_recursive(base_class, module)
+        iterator = iter_module_subclasses_recursive(module, base_class)
 
     for cls in iterator:
         if cls.__name__ == class_name:
@@ -95,6 +94,20 @@ def find_class_by_namespace(class_namespace, base_class=object, module=None):
         #logging.warning("Error obtaining class definition for {0}: {1}".format(class_name, e))
     return None
 
+
+def get_cls_cache(base_class=object, module=None):
+    """
+    Store all subclasses of provided base class.
+    :param base_class: The base class to inspect.
+    :param module: If provided, all results will be class of provided module name.
+    :return: A dictionary where the key is the class name and the value is the class definition.
+    """
+    result = {}
+    iter = iter_subclasses_recursive if module is None else functools.partial(iter_module_subclasses_recursive, module)
+    for cls in iter(base_class):
+        key = cls.__name__
+        result[key] = cls
+    return result
 
 def create_class_instance(cls):
     """
@@ -237,17 +250,21 @@ def export_dict(data, skip_None=True, recursive=True, **args):
     return None
 
 
-def import_dict(data, **args):
+def import_dict(data, cache=None, **kwargs):
     """
     Rebuild any instance of a python object instance that have been serialized using export_dict.
 
     Args:
         _data: A dict instance containing only basic data types.
-        **args:
+        **kwargs:
 
     Returns:
 
     """
+
+    if cache is None:
+        cache = get_cls_cache(**kwargs)
+
     #assert (data is not None)
     if isinstance(data, dict) and '_class' in data:
         # Handle Serializable object
@@ -274,12 +291,12 @@ def import_dict(data, **args):
 
         for key, val in data.items():
             if key != '_class':
-                instance.__dict__[key] = import_dict(val, **args)
+                instance.__dict__[key] = import_dict(val, cache=cache)
         return instance
 
     # Handle array
     elif is_data_list(data):
-        return [import_dict(v, **args) for v in data]
+        return [import_dict(v, cache=cache) for v in data]
 
     # Handle other types of data
     else:

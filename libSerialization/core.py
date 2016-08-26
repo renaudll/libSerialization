@@ -6,51 +6,15 @@ import logging as _logging
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
 
-
-def get_class_def(class_name, base_class=object):
-    try:
-        for cls in base_class.__subclasses__():
-            cls_path = get_class_namespace(cls)
-            if cls_path == class_name:
-                return cls
-            else:
-                t = get_class_def(class_name, base_class=cls)
-                if t is not None:
-                    return t
-    except Exception as e:
-        pass
-        #logging.warning("Error obtaining class definition for {0}: {1}".format(class_name, e))
-    return None
-
-
-def create_class_instance(class_name):
-    cls = get_class_def(class_name)
-
-    if cls is None:
-        logging.warning("Can't find class definition '{0}'".format(class_name))
-        return None
-
-    class_def = getattr(sys.modules[cls.__module__], cls.__name__)
-    assert (class_def is not None)
-
-    try:
-        return class_def()
-    except Exception as e:
-        logging.error("Fatal error creating '{0}' instance: {1}".format(class_name, str(e)))
-        return None
-
-
-def get_class_namespace(classe):
-    if not isinstance(classe, object):
-        return None  # Todo: throw exception
-    tokens = []
-    while classe is not object:
-        tokens.append(classe.__name__)
-        classe = classe.__bases__[0]
-    return '.'.join(reversed(tokens))
-
+import resolver
 
 class DictSerializer(object):
+    def __init__(self, base_class=object, module=None):
+        """
+        The Serializer in memory a cache of class definition for better performances.
+        :param base_class: The base class to initialize the cache from.
+        """
+        self.cache = resolver.get_cls_cache(base_class=base_class, module=module)
     #
     # Define basic datatypes
     #
@@ -66,7 +30,7 @@ class DictSerializer(object):
 
     def is_data_basic(self, _data):
         global TYPES_BASIC
-        return any(filter(lambda x: isinstance(_data, x), (iter(TYPES_BASIC))))
+        return any(filter(lambda x: isinstance(_data, x), (iter(self.TYPES_BASIC))))
 
     #
     # Define list datatypes
@@ -75,8 +39,7 @@ class DictSerializer(object):
     TYPES_LIST = [list, tuple]
 
     def is_data_list(self, _data):
-        global TYPES_LIST
-        return any(filter(lambda x: isinstance(_data, x), (iter(TYPES_LIST))))
+        return any(filter(lambda x: isinstance(_data, x), (iter(self.TYPES_LIST))))
 
     #
     # Define complex datatypes
@@ -116,7 +79,7 @@ class DictSerializer(object):
         # object instance
         if data_type == consts.DataTypes.TYPE_COMPLEX:
             data_dict = {
-                '_class': get_class_namespace(data.__class__),
+                '_class': resolver.get_class_namespace(data.__class__),
                 '_uid': id(data)
             }
             for key, val in (data.items() if isinstance(data, dict) else data.__dict__.items()):  # TODO: Clean
@@ -143,12 +106,44 @@ class DictSerializer(object):
         logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
         return None
 
+    def _get_class_by_name(self, class_name, class_module=None):
+        """
+        Return the latest defined class matching the provided requirements.
+        :param class_name:
+        :param class_module:
+        :return:
+        """
+        # In the past, class where stored as namespaces. (ex: ParentClass.ChildClass)
+        # instead of using only the class name and the module name.
+        # We still support this method, however in the future it might be
+        # desirable to break compatibility to increase speed.
+        if '.' in class_name:
+            logging.warning("Deprecated data is affecting performance. Please update data for class {0}".format(
+                class_name
+            ))
+            class_definition = resolver.find_class_by_namespace(class_name)
+        else:
+            # TODO: Use cache lookup!
+            #class_definition = resolver.find_class_by_name(class_name, module=class_module)
+            class_definition = self.cache.get(class_name, None)
+
+
+        if class_definition is None:
+            logging.warning("Cannot find definition for '{0}', is it imported?".format(
+                class_name
+            ))
+        else:
+            # Ensure we have the latest defined class definition.
+            class_definition = getattr(sys.modules[class_definition.__module__], class_definition.__name__)
+
+        return class_definition
+
     def import_dict(self, data, **args):
         """
         Rebuild any instance of a python object instance that have been serialized using export_dict.
 
         Args:
-            _data: A dict instance containing only basic data types.
+            data: A dict instance containing only basic data types.
             **args:
 
         Returns:
@@ -159,7 +154,7 @@ class DictSerializer(object):
             # Handle Serializable object
             class_path = data['_class']
             class_name = class_path.split('.')[-1]
-            instance = create_class_instance(class_name)
+            instance = resolver.create_class_instance(class_name)
             if instance is None or not isinstance(instance, object):
                 logging.error("Can't create class instance for {0}, did you import to module?".format(class_path))
                 # TODO: Log error
@@ -186,15 +181,18 @@ def mkdir(path):
 #
 # Global methods
 #
-__all__ = ['export_dict', 'import_dict']
-singleton = DictSerializer()
+
+# Expose core methods for backward compatibility.
+# TODO: Remove this.
+from resolver import find_class_by_name
+
+__all__ = ['export_dict', 'import_dict', 'find_class_by_name']
 
 
-def export_dict(*args, **kwargs):
-    global singleton
-    singleton.export_dict(*args, **kwargs)
+def export_dict(data, base_class=object, module=None, **kwargs):
+    s = DictSerializer(base_class=base_class, module=module)
+    s.export_dict(data, **kwargs)
 
-
-def import_dict(*args, **kwargs):
-    global singleton
-    singleton.import_dict(*args, **kwargs)
+def import_dict(data, base_class=object, module=None, **kwargs):
+    s = DictSerializer(base_class=base_class, module=module)
+    return s.import_dict(data, **kwargs)

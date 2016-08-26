@@ -3,6 +3,7 @@ from maya import OpenMaya
 import logging
 import consts
 import core
+import decorators
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -29,8 +30,7 @@ class MayaSerializer(core.DictSerializer):
         """
         Add pymel support.
         """
-        global types_dag
-        return any(filter(lambda x: isinstance(data, x), iter(types_dag)))
+        return any(filter(lambda x: isinstance(data, x), iter(self.types_dag)))
 
     def get_data_type(self, data):
         # It is important to check pymel data before complex data since basically,
@@ -281,17 +281,24 @@ class MayaSerializer(core.DictSerializer):
 
         return network
 
+    # Define constants
+    _attr_name_class = '_class'
+    _attr_name_module = '_class_module'
 
     # todo: add an optimisation to prevent recreating the python variable if it already exist.
-    def import_network(self, network):
+    def import_network(self, network, module=None):
         if not network.hasAttr('_class'):
             log.error('[importFromNetwork] Network dont have mandatory attribute _class')
             raise AttributeError
 
-        cls = network.getAttr('_class')
-        obj = core.create_class_instance(cls)
-        if obj is None:
+        class_name = network.getAttr(self._attr_name_class)
+        class_module = network.getAttr(self._attr_name_module) if network.hasAttr(self._attr_name_module) else None
+        cls = self._get_class_by_name(class_name, class_module)
+        if cls is None:
             return None
+
+        obj = cls()
+
         # Monkey patch the network if supported
         if isinstance(obj, object) and not isinstance(obj, dict):
             obj._network = network
@@ -344,17 +351,15 @@ class MayaSerializer(core.DictSerializer):
 __all__ = ['export_network', 'import_network', 'getConnectedNetworks', 'getConnectedNetworksByHierarchy',
            'getNetworksByClass', 'isNetworkInstanceOfClass']
 
-singleton = MayaSerializer()
 
+def export_network(data, base_class=object, module=None, **kwargs):
+    s = MayaSerializer(base_class=base_class, module=module)
+    s.export_network(data, **kwargs)
 
-def export_network(*args, **kwargs):
-    global singleton
-    singleton.export_network(*args, **kwargs)
-
-
-def import_network(*args, **kwargs):
-    global singleton
-    singleton.import_network(*args, **kwargs)
+@decorators.profiler
+def import_network(network, base_class=object, module=None, **kwargs):
+    s = MayaSerializer(base_class=base_class, module=module)
+    return s.import_network(network, **kwargs)
 
 
 def isNetworkInstanceOfClass(_network, cls_name):

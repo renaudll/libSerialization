@@ -52,8 +52,19 @@ def create_attr(name, data):
         if len(data) < 1:
             pymel.warning("Can't create attribute {0}, empty array are unsuported".format(name))
             return None
-        # TODO: Throw error when the array have multiple types
-        fn = create_attr(name, data[0])
+
+        # Contrary to python list, list attributes in Maya are typed.
+        # Resolve the type and raise an Exception if we find multiple types.
+        iter_valid_values = (d for d in data if d is not None)
+        ref_val = next(iter(iter_valid_values), None)
+
+        # If the list only contain None values, don't create anything.
+        if ref_val is None:
+            return
+
+        # todo: raise an exception if multiples types are in the same list. check performance impact.
+
+        fn = create_attr(name, ref_val)
         fn.setArray(True)
         return fn
     if issubclass(data_type, pymel.datatypes.Matrix):  # HACK
@@ -106,7 +117,7 @@ def add_attr(fnDependNode, name, data):
 
     # Skip empty list
     is_multi = data_type == core.TYPE_LIST
-    if is_multi and len(data) == 0:
+    if is_multi and len(filter(None, data)) == 0:
         return
 
     plug = None
@@ -197,6 +208,8 @@ def set_attr(_plug, data):
             dagM.doIt()
         else:
             raise Exception("Unknow TYPE {0}, {1}".format(type(data), data))
+    elif data_type == core.TYPE_NONE:
+        return
 
     else:
         print data, data_type
@@ -206,7 +219,12 @@ def set_attr(_plug, data):
 def get_network_attr(attr, cache=None):
     # Recursive
     if attr.isMulti():
-        return [get_network_attr(attr.elementByPhysicalIndex(i), cache=cache) for i in range(attr.numElements())]
+        attr_indices = attr.getArrayIndices()
+        # Empty array
+        if not attr_indices:
+            return []
+        num_logical_elements = max(attr_indices)+1
+        return [get_network_attr(attr.elementByLogicalIndex(i), cache=cache) for i in range(num_logical_elements)]
 
     if attr.type() == 'message':
         if not attr.isConnected():
@@ -286,7 +304,6 @@ def export_network(data, **kwargs):
     return network
 
 
-# todo: add an optimisation to prevent recreating the python variable if it already exist.
 def import_network(network, cache=None, **kwargs):
     if cache is None:
         cache = core.get_cls_cache(**kwargs)
@@ -309,6 +326,7 @@ def import_network(network, cache=None, **kwargs):
         cls_def = core.find_class_by_namespace(cls_name)
 
     if cls_def is None:
+        log.warning("Can't find class definiton for {0}. Returning None".format(cls_name))
         return None
 
     # HACK: Get latest definition
@@ -385,7 +403,7 @@ def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
         objs = [objs]
 
     for obj in objs:
-        if hasattr(obj, 'message'):
+        if obj.hasAttr('message'):
             for output in obj.message.outputs():
                 if isinstance(output, pymel.nodetypes.Network):
                     if output not in inArray:

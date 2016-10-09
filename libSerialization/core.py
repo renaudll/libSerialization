@@ -7,7 +7,7 @@ logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
 
 # constants
-TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX = range(4)
+TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX, TYPE_NONE = range(5)
 
 # src: https://wiki.python.org/moin/PythonDecoratorLibrary#Memoize
 # modified to support kwargs
@@ -122,15 +122,26 @@ def create_class_instance(cls):
         logging.error("Fatal error creating '{0}' instance: {1}".format(cls, str(e)))
         return None
 
-def get_class_namespace(classe):
-    # TODO: use inspect.get_mro
-    if not isinstance(classe, object):
-        return None  # Todo: throw exception
-    tokens = []
-    while classe is not object:
-        tokens.append(classe.__name__)
-        classe = classe.__bases__[0]
-    return '.'.join(reversed(tokens))
+def get_class_namespace(cls):
+    if not hasattr(cls, '__mro__'):
+        raise NotImplementedError("Class {0} is a Python old-style class and is unsupported.".format(cls))
+
+    return '.'.join(
+        (subcls.__name__ for subcls in cls.__mro__ if subcls != object)
+    )
+    #
+    # # TODO: use inspect.get_mro
+    # if not isinstance(cls, object):
+    #     return None  # Todo: throw exception
+    # tokens = []
+    # while cls is not object:
+    #     tokens.append(cls.__name__)
+    #     cls = next(iter(cls.__bases__), None)
+    #
+    #     # Python old-style class will return
+    #     if cls is None:
+    #         break
+    # return '.'.join(reversed(tokens))
 
 
 
@@ -185,6 +196,8 @@ def is_data_pymel(data):
 
 
 def get_data_type(data):
+    if data is None:
+        return TYPE_NONE
     if is_data_basic(data):
         return TYPE_BASIC
     if is_data_list(data):

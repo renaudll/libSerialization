@@ -418,13 +418,10 @@ def getNetworksByClass(_clsName):
 
 
 # TODO: benchmark with sets
-def getConnectedNetworks(objs, key=None, recursive=True, inArray=None, processedArray=None):
+def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
     # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
     if inArray is None:
         inArray = []
-
-    if processedArray is None:
-        processedArray = []
 
     if not hasattr(objs, '__iter__'):
         objs = [objs]

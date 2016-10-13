@@ -130,4 +130,11 @@ class SampleTests(mayaunittest.TestCase):
         data = libSerialization.export_network(parent)
         self.assertTrue(isinstance(data, pymel.nodetypes.Network))
 
+    def test_self_dependance(self):
+        node = A()
+        node.self = node
+
+        data = libSerialization.export_network(node)
+        self.assertTrue(isinstance(data, pymel.nodetypes.Network))
+
 

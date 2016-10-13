@@ -327,6 +327,13 @@ def import_network(network, cache=None, **kwargs):
     if not network.hasAttr('_class'):
         return network
 
+    network_id = hash(network)
+
+    # Check if the object related to the network already exist in the cache and return it if found
+    cached_obj = cache.get_import_value_by_id(network_id)
+    if cached_obj is not None:
+        return cached_obj
+
     cls_name = network.getAttr('_class')
 
     # HACK: Previously we were storing the complete class namespace.
@@ -350,6 +357,9 @@ def import_network(network, cache=None, **kwargs):
     # Monkey patch the network if supported
     if isinstance(obj, object) and not isinstance(obj, dict):
         obj._network = network
+
+    # Fill the import cache to make sure that self reference doesn't try to infinitly loop in it's import
+    cache.set_import_value_by_id(network_id, obj)
 
     # Resolve wich attribute we'll want to import
     attrs_by_longname = {}
@@ -408,10 +418,13 @@ def getNetworksByClass(_clsName):
 
 
 # TODO: benchmark with sets
-def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
+def getConnectedNetworks(objs, key=None, recursive=True, inArray=None, processedArray=None):
     # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
     if inArray is None:
         inArray = []
+
+    if processedArray is None:
+        processedArray = []
 
     if not hasattr(objs, '__iter__'):
         objs = [objs]
@@ -420,9 +433,12 @@ def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
         if obj.hasAttr('message'):
             for output in obj.message.outputs():
                 if isinstance(output, pymel.nodetypes.Network):
-                    if output not in inArray:
+                    # Prevent cyclic dependencies
+                    if output not in inArray and output != obj:
                         if key is None or key(output):
                             inArray.append(output)
+                        # Ensure that the network is not already found when searching
+                        # recursively and prevent infinite loop
                         if recursive:
                             getConnectedNetworks(output, key=key, recursive=recursive, inArray=inArray)
     return inArray

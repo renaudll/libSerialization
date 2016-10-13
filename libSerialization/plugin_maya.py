@@ -48,7 +48,7 @@ def create_attr(name, data):
         fn = OpenMaya.MFnMessageAttribute()
         fn.create(name, name)
         return fn
-    if isinstance(data, list) or isinstance(type, tuple):
+    if isinstance(data, (list, tuple)):
         if len(data) < 1:
             pymel.warning("Can't create attribute {0}, empty array are unsuported".format(name))
             return None

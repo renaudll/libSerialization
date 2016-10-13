@@ -91,4 +91,10 @@ class SampleTests(mayaunittest.TestCase):
         self.assertTrue(abs(network_ex_float- new_instance.ex_float) < epsilon)
         self.assertTrue(network_ex_str == new_instance.ex_str)
 
+    def test_cache_invalidation(self):
+        """
+        Ensure that any datatype
+        """
+        raise NotImplementedError
+
 

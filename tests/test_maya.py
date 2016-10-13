@@ -1,8 +1,15 @@
 import os
+import time
 import mayaunittest
 from maya import cmds
 import pymel.core as pymel
 import libSerialization
+
+# Connect to PyCharm
+import sys
+sys.path.append('/opt/pycharm-professional/helpers/pydev/')
+import pydevd
+pydevd.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True, suspend=False)
 
 def open_scene(path_local):
     def deco_open(f):
@@ -16,6 +23,14 @@ def open_scene(path_local):
             cmds.file(path, open=True, f=True)
         return f_open
     return deco_open
+
+def log_execution_time(fn):
+    def wrapper(*args, **kwargs):
+        st = time.time()
+        fn(*args, **kwargs)
+        et = time.time()
+        print("{0} took {1} seconds".format(fn, et-st))
+    return wrapper
 
 # Note that we need to define the class used in the UnitTest in the global module score
 # for them to be accessible by libSerialization.
@@ -37,6 +52,7 @@ class C(B, A):
 
 class SampleTests(mayaunittest.TestCase):
 
+    @log_execution_time
     def test_old_style_class(self):
         """
         Python old-style class are not supported.
@@ -51,6 +67,7 @@ class SampleTests(mayaunittest.TestCase):
         except Exception, e:
             self.assertTrue(isinstance(e, NotImplementedError))
 
+    @log_execution_time
     def test_new_style_class_mro(self):
         inst = C()
 
@@ -92,9 +109,25 @@ class SampleTests(mayaunittest.TestCase):
         self.assertTrue(network_ex_str == new_instance.ex_str)
 
     def test_cache_invalidation(self):
-        """
-        Ensure that any datatype
-        """
-        raise NotImplementedError
+        pass
+
+
+    def test_cyclic_reference_base(self):
+        parent = A()
+        child = A()
+        parent.children = [child]
+        child.parent = parent
+
+        data = libSerialization.export_dict(parent)
+        self.assertTrue(isinstance(data, dict))
+
+    def test_cyclic_reference_network(self):
+        parent = A()
+        child = A()
+        parent.children = [child]
+        child.parent = parent
+
+        data = libSerialization.export_network(parent)
+        self.assertTrue(isinstance(data, pymel.nodetypes.Network))
 
 

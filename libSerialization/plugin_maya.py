@@ -112,7 +112,7 @@ def create_attr(name, data):
     pymel.error("Can't create MFnAttribute for {0} {1} {2}".format(name, data, data_type))
 
 
-def add_attr(fnDependNode, name, data):
+def add_attr(fnDependNode, name, data, cache=None):
     data_type = core.get_data_type(data)
 
     # Skip empty list
@@ -141,10 +141,10 @@ def add_attr(fnDependNode, name, data):
                 log.warning('Error adding attribute {0}: {1}'.format(name, e))
 
     if plug is not None:
-        set_attr(plug, data)
+        set_attr(plug, data, cache=cache)
 
 
-def set_attr(_plug, data):
+def set_attr(_plug, data, cache=None):
     data_type = core.get_data_type(data)
     if data_type == core.TYPE_LIST:
         num_elements = len(data)
@@ -152,7 +152,7 @@ def set_attr(_plug, data):
         _plug.setNumElements(num_elements)  # TODO: MAKE IT WORK # TODO: NECESSARY???
 
         for i in range(num_elements):
-            set_attr(_plug.elementByLogicalIndex(i), data[i])
+            set_attr(_plug.elementByLogicalIndex(i), data[i], cache=cache)
 
     elif data_type == core.TYPE_BASIC:
         # Basic types
@@ -167,7 +167,7 @@ def set_attr(_plug, data):
             # pymel.Attribute(_plug).set(_val)
 
     elif data_type == core.TYPE_COMPLEX:
-        network = export_network(data)
+        network = export_network(data, cache=cache)
         plug = network.__apimfn__().findPlug('message')
 
         # Use a dag modifier to connect the attribute. TODO: Is this really the best way?
@@ -260,7 +260,10 @@ def can_export_attr_by_name(name):
 
     return True
 
-def export_network(data, **kwargs):
+def export_network(data, cache=None, **kwargs):
+    if cache is None:
+        from cache import Cache
+        cache = Cache()
     #log.debug('CreateNetwork {0}'.format(data))
 
     # We'll deal with two additional attributes, '_network' and '_uid'.
@@ -271,42 +274,53 @@ def export_network(data, **kwargs):
     # is sufficient.
     # Please feel free to provide a better design if any if possible.
 
+    # todo: after refactoring, the network cache will be merged with the import cache
+    data_id = id(data)
+    result = cache.get_network_by_id(data_id)
+    if result is not None:
+        return result
+
+    # Create network
     # Optimisation: Use existing network if already present in scene
-    if hasattr(data, '_network') and is_valid_PyNode(data._network):
-        network = data._network
-    else:
-        # Automaticly name network whenever possible
-        try:
-            network_name = data.__getNetworkName__()
-        except (AttributeError, TypeError):
-            network_name = data.__class__.__name__
+    #if hasattr(data, '_network') and is_valid_PyNode(data._network):
+    #    network = data._network
+    #else:
+    # Automaticly name network whenever possible
+    try:
+        network_name = data.__getNetworkName__()
+    except (AttributeError, TypeError):
+        network_name = data.__class__.__name__
 
-        network = pymel.createNode('network', name=network_name)
+    network = pymel.createNode('network', name=network_name)
 
-        # Monkey patch the network in a _network attribute if supported.
-        if isinstance(data, object) and not isinstance(data, dict):
-            data._network = network
+    # Monkey patch the network in a _network attribute if supported.
+    if isinstance(data, object) and not isinstance(data, dict):
+        data._network = network
 
     # Ensure the network have the current python id stored
     if not network.hasAttr('_uid'):
         pymel.addAttr(network, longName='_uid', niceName='_uid', at='long')  # todo: validate attributeType
-    #    network._uid.set(id(_data))
+    # network._uid.set(id(_data))
+
+    # Cache as soon as possible since we'll use recursivity soon.
+    cache.set_network_by_id(data_id, network)
 
     # Convert _pData to basic data dictionary (recursive for now)
-    data_dict = core.export_dict(data, recursive=False, **kwargs)
+    data_dict = core.export_dict(data, recursive=False, cache=cache, **kwargs)
     assert (isinstance(data_dict, dict))
 
     fnNet = network.__apimfn__()
     for key, val in data_dict.items():
         if can_export_attr_by_name(key):
-            add_attr(fnNet, key, val)
+            add_attr(fnNet, key, val, cache=cache)
 
     return network
 
 
 def import_network(network, cache=None, **kwargs):
     if cache is None:
-        cache = core.get_cls_cache(**kwargs)
+        from cache import Cache
+        cache = Cache()
 
     # Duck-type the network, if the '_class' attribute exist, it is a class instance representation.
     # Otherwise it is a simple pymel.PyNode datatypes.
@@ -321,9 +335,9 @@ def import_network(network, cache=None, **kwargs):
     # Otherwise we'll let it slip for now.
     cls_module = network.getAttr('_class_module') if network.hasAttr('_class_module') else None
     if cls_module:
-        cls_def = core.find_class_by_name(cls_name, module=cls_module)
+        cls_def = cache.get_class_by_name(cls_name, module_name=cls_module)
     else:
-        cls_def = core.find_class_by_namespace(cls_name)
+        cls_def = cache.get_class_by_namespace(cls_name)
 
     if cls_def is None:
         log.warning("Can't find class definiton for {0}. Returning None".format(cls_name))

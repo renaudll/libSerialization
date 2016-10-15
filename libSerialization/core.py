@@ -238,9 +238,9 @@ def import_dict(data, cache=None, **kwargs):
         # Otherwise we'll let it slip for now.
 
         if cls_module:
-            cls_def = find_class_by_name(cls_name, module=cls_module)
+            cls_def = cache.get_class_by_name(cls_name, module_name=cls_module)
         else:
-            cls_def = find_class_by_namespace(cls_name)
+            cls_def = cache.get_class_by_namespace(cls_name)
 
         if cls_def is None:
             logging.error("Can't create class instance for {0}, did you import to module?".format(cls_path))

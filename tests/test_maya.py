@@ -5,12 +5,6 @@ from maya import cmds
 import pymel.core as pymel
 import libSerialization
 
-# Connect to PyCharm
-import sys
-sys.path.append('/opt/pycharm-professional/helpers/pydev/')
-import pydevd
-pydevd.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True, suspend=False)
-
 def open_scene(path_local):
     def deco_open(f):
         def f_open(*args, **kwargs):

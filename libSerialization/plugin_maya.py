@@ -419,6 +419,7 @@ def getNetworksByClass(_clsName):
 
 # TODO: benchmark with sets
 def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
+    # todo: test performance with recursivity and self-referencing attributes!
     # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
     if inArray is None:
         inArray = []
@@ -428,6 +429,8 @@ def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
 
     for obj in objs:
         if obj.hasAttr('message'):
+            if not obj in inArray:
+                inArray.append(obj)
             for output in obj.message.outputs():
                 if isinstance(output, pymel.nodetypes.Network):
                     # Prevent cyclic dependencies

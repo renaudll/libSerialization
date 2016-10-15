@@ -7,12 +7,17 @@ import core
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-
 def is_valid_PyNode(val):
     return val and hasattr(val, 'exists') and val.exists()
 
-__all__ = ['export_network', 'import_network', 'getConnectedNetworks', 'getConnectedNetworksByHierarchy',
-           'getNetworksByClass', 'isNetworkInstanceOfClass']
+__all__ = (
+    'export_network',
+    'import_network',
+    'getConnectedNetworks',
+    'getConnectedNetworksByHierarchy',
+    'getNetworksByClass',
+    'isNetworkInstanceOfClass'
+)
 
 # Pymel compatibility implementation
 core.types_dag.append(pymel.PyNode)
@@ -27,34 +32,49 @@ core.types_dag.append(pymel.datatypes.Vector)
 
 
 def create_attr(name, data):
+    """
+    Factory method that create an OpenMaya.MFnAttribute object from an arbitrary instance.
+    :param name: The name of the OpenMaya.MFnAttribute to create.
+    :param data: The value used to determine the type of OpenMaya.MFnAttribute to create.
+    :return: An OpenMaya.MFnAttribute subclass instance.
+    """
+    # (str, unicode) -> MFnTypedAttribute(kString)
     if isinstance(data, basestring):
         fn = OpenMaya.MFnTypedAttribute()
         fn.create(name, name, OpenMaya.MFnData.kString)
         return fn
     data_type = type(data)
+    # (bool,) -> MFnNumericAttribute(kBoolean)
     if issubclass(data_type, bool):
         fn = OpenMaya.MFnNumericAttribute()
         fn.create(name, name, OpenMaya.MFnNumericData.kBoolean)
         return fn
+    # (int,) -> MFnNumericData(kInt)
     if issubclass(data_type, int):
         fn = OpenMaya.MFnNumericAttribute()
         fn.create(name, name, OpenMaya.MFnNumericData.kInt)
         return fn
+    # (float,) -> MFnNumericData(kFloat)
     if issubclass(data_type, float):
         fn = OpenMaya.MFnNumericAttribute()
         fn.create(name, name, OpenMaya.MFnNumericData.kFloat)
         return fn
+    # (dict,) -> MFnMessageAttribute
     if isinstance(data, dict):
         fn = OpenMaya.MFnMessageAttribute()
         fn.create(name, name)
         return fn
+    # (list, tuple,) -> arbitrary type depending on the list content.
+    # Note contrary to python list, Maya lists are typed.
+    # This will crash if the list contain multiple types at the same time.
+    # However, the None value is supported.
     if isinstance(data, (list, tuple)):
         if len(data) < 1:
             pymel.warning("Can't create attribute {0}, empty array are unsuported".format(name))
             return None
 
-        # Contrary to python list, list attributes in Maya are typed.
-        # Resolve the type and raise an Exception if we find multiple types.
+        # Resolve the type
+        # todo:raise an Exception if we find multiple types.
         iter_valid_values = (d for d in data if d is not None)
         ref_val = next(iter(iter_valid_values), None)
 
@@ -67,10 +87,12 @@ def create_attr(name, data):
         fn = create_attr(name, ref_val)
         fn.setArray(True)
         return fn
+    # (pymel.datatypes.Matrix,) -> MFnMatrixAttribute
     if issubclass(data_type, pymel.datatypes.Matrix):  # HACK
         fn = OpenMaya.MFnMatrixAttribute()
         fn.create(name, name)
         return fn
+    # (pymel.datatypes.Vector,) -> MFnNumericAttribute(kDouble)
     if issubclass(data_type, pymel.datatypes.Vector):
         name_x = '{0}X'.format(name)
         name_y = '{0}Y'.format(name)
@@ -81,6 +103,7 @@ def create_attr(name, data):
         mo_z = fn.create(name_z, name_z, OpenMaya.MFnNumericData.kDouble)
         fn.create(name, name, mo_x, mo_y, mo_z)
         return fn
+    # (pymel.general.Attribute,) -> arbitrary type depending on the attribute type itself.
     if issubclass(data_type, pymel.Attribute):
         if not is_valid_PyNode(data):
             log.warning("Can't serialize {0} attribute because of non-existent pymel Attribute!".format(name))
@@ -93,24 +116,24 @@ def create_attr(name, data):
             fn = OpenMaya.MFnUnitAttribute()
             fn.create(name, name, OpenMaya.MFnUnitAttribute.kTime)
             return fn
-        # elif _val.type() == '???':
-        #    fn = OpenMaya.MFnUnitAttribute()
-        #    fn.create(_name, _name, OpenMaya.MFnUnitAttribute.kDistance)
-        #    return fn
         # If the attribute doesn't represent anything special,
         # we'll check it's value to know what attribute type to create.
         else:
             return create_attr(name, data.get())
+    # (pymel.general.PyNode,) -> MFnMessageAttribute
+    # The order is important here as if we hit this, we don't deal with a pymel.general.Attribute.
+    # Note that by using duct-typing we support any 'pymel-like' behavior.
     if hasattr(data, '__melobject__'):  # TODO: Really usefull?
         fn = OpenMaya.MFnMessageAttribute()
         fn.create(name, name)
         return fn
+    # (object,) -> MFnMessageAttribute
     if hasattr(data, '__dict__'):
         fn = OpenMaya.MFnMessageAttribute()
         fn.create(name, name)
         return fn
-    pymel.error("Can't create MFnAttribute for {0} {1} {2}".format(name, data, data_type))
 
+    pymel.error("Can't create MFnAttribute for {0} {1} {2}".format(name, data, data_type))
 
 def add_attr(fnDependNode, name, data, cache=None):
     data_type = core.get_data_type(data)
@@ -418,30 +441,38 @@ def getNetworksByClass(_clsName):
 
 
 # TODO: benchmark with sets
-def getConnectedNetworks(objs, key=None, recursive=True, inArray=None):
+def getConnectedNetworks(objs, key=None, recursive=True, result=None, cache=None):
     # todo: test performance with recursivity and self-referencing attributes!
     # Initialise the array the first time, we don't want to do it in the function argument as it will keep old values...
-    if inArray is None:
-        inArray = []
+    if result is None:
+        result = []
+    if cache is None:
+        cache = []
 
     if not hasattr(objs, '__iter__'):
         objs = [objs]
 
     for obj in objs:
         if obj.hasAttr('message'):
-            if not obj in inArray:
-                inArray.append(obj)
-            for output in obj.message.outputs():
-                if isinstance(output, pymel.nodetypes.Network):
+            if not obj in result:
+                cache.append(obj)
+            for output_obj in obj.message.outputs():
+                if isinstance(output_obj, pymel.nodetypes.Network):
                     # Prevent cyclic dependencies
-                    if output not in inArray and output != obj:
-                        if key is None or key(output):
-                            inArray.append(output)
-                        # Ensure that the network is not already found when searching
-                        # recursively and prevent infinite loop
-                        if recursive:
-                            getConnectedNetworks(output, key=key, recursive=recursive, inArray=inArray)
-    return inArray
+                    if output_obj in cache:
+                        continue
+                    # Prevent self referencing
+                    if output_obj is obj:
+                        continue
+                    # Ensure we ignore the object next time since we already saw it once.
+                    cache.append(output_obj)
+                    
+                    if key is None or key(output_obj):
+                        result.append(output_obj)
+
+                    if recursive:
+                        getConnectedNetworks(output_obj, key=key, recursive=recursive, result=result, cache=cache)
+    return result
 
 
 # Return all connected network while traversing the hierarchy upward.

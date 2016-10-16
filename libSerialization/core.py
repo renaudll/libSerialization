@@ -1,8 +1,13 @@
 import logging as _logging
 import sys
-import collections
-import functools
 
+__all__ = (
+    'get_class_module_root',
+    'get_class_namespace',
+    'create_class_instance',
+    'export_dict',
+    'import_dict'
+)
 
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
@@ -10,38 +15,49 @@ logging.setLevel(_logging.WARNING)
 # constants
 TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX, TYPE_NONE = range(5)
 
-def iter_subclasses_recursive(cls):
-    yield cls
-
-    try:
-        for sub_cls in cls.__subclasses__():
-            for x in iter_subclasses_recursive(sub_cls):
-                yield x
-    except TypeError:  # This will fail when encountering the 'type' datatype.
-        pass
 
 def get_class_module_root(cls):
+    """
+    Resolve the top namespace of a class associated module.
+
+    >>> from omtk.core.classCtrl import BaseCtrl
+    >>> BaseCtrl.__module__
+    'omtk.core.classCtrl'
+    >>> get_class_module_root(BaseCtrl)
+    'omtk'
+
+    :param cls: A class definition to inspect.
+    :return: A str instance representing the root module.
+    """
     return next(iter(cls.__module__.split('.')), None)
 
-
-def iter_module_subclasses_recursive(module_root, cls):
-    for sub_cls in iter_subclasses_recursive(cls):
-        cur_module_root = get_class_module_root(sub_cls)
-        if module_root == cur_module_root:
-            yield sub_cls
-
 def get_class_namespace(cls):
+    """
+    Resolve the full qualified namespace of a class.
+    This support multiple inheritance using Python's method resolution order.
+
+    >>> from omtk.rigs.rigArm import Arm
+    >>> get_class_namespace(Arm)
+    'Module.Limb.Arm'
+
+    :param cls: A class definition to inspect.
+    :return: A str instance representing the full qualified class namespace.
+    """
     if not hasattr(cls, '__mro__'):
         raise NotImplementedError("Class {0} is a Python old-style class and is unsupported.".format(cls))
 
     return '.'.join(
-        (subcls.__name__ for subcls in cls.__mro__ if subcls != object)
+        reversed([subcls.__name__ for subcls in cls.__mro__ if subcls != object])
     )
 
 
 def create_class_instance(cls):
     """
-    Create a class instance using the latest definition.
+    Create a class instance.
+    This will ensure that even if the provided class definition is outdated (because of a reload)
+    the latest definition (available from sys.modules) will be used.
+    :param cls: A class definition to inspect.
+    :return: A class instance.
     """
     class_def = getattr(sys.modules[cls.__module__], cls.__name__)
     assert (class_def is not None)
@@ -51,24 +67,6 @@ def create_class_instance(cls):
     except Exception as e:
         logging.error("Fatal error creating '{0}' instance: {1}".format(cls, str(e)))
         return None
-
-
-    #
-    # # TODO: use inspect.get_mro
-    # if not isinstance(cls, object):
-    #     return None  # Todo: throw exception
-    # tokens = []
-    # while cls is not object:
-    #     tokens.append(cls.__name__)
-    #     cls = next(iter(cls.__bases__), None)
-    #
-    #     # Python old-style class will return
-    #     if cls is None:
-    #         break
-    # return '.'.join(reversed(tokens))
-
-
-
 
 #
 # Types definitions
@@ -147,7 +145,6 @@ def export_dict(data, skip_None=True, recursive=True, cache=None, **args):
         **args:
 
     Returns: A dict instance containing only basic data types.
-
     """
     if cache is None:
         from cache import Cache

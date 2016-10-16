@@ -1,5 +1,21 @@
 from decorators import memoized
-from .core import iter_subclasses_recursive, iter_module_subclasses_recursive, get_class_namespace
+from .core import get_class_namespace, get_class_module_root
+
+def iter_subclasses_recursive(cls):
+    yield cls
+
+    try:
+        for sub_cls in cls.__subclasses__():
+            for x in iter_subclasses_recursive(sub_cls):
+                yield x
+    except TypeError:  # This will fail when encountering the 'type' datatype.
+        pass
+
+def iter_module_subclasses_recursive(module_root, cls):
+    for sub_cls in iter_subclasses_recursive(cls):
+        cur_module_root = get_class_module_root(sub_cls)
+        if module_root == cur_module_root:
+            yield sub_cls
 
 class Cache(object):
     def __init__(self):

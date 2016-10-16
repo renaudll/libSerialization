@@ -8,7 +8,12 @@ from plugin_json import export_json
 from plugin_json import export_json_file
 from plugin_json import import_json
 from plugin_json import import_json_file
-__all__ = ['export_json_maya', 'export_json_file_maya', 'import_json_maya', 'import_json_file_maya']
+__all__ = (
+    'export_json_maya',
+    'export_json_file_maya',
+    'import_json_maya',
+    'import_json_file_maya'
+)
 
 
 # TODO: Add support for matrix and vector datatypes

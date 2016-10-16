@@ -67,7 +67,7 @@ class SampleTests(mayaunittest.TestCase):
 
         result = libSerialization.export_dict(inst)
         self.assertTrue(result['_class'] == 'C')
-        self.assertTrue(result['_class_namespace'] == 'C.B.A')
+        self.assertTrue(result['_class_namespace'] == 'A.B.C')
 
     def test_export_network(self, epsilon=0.00001):
         pynode_a = pymel.createNode('transform')

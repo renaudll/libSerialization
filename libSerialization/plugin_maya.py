@@ -506,7 +506,7 @@ def iter_connected_networks(objs, key=None, recursive=True, cache=None):
                 yield output_obj
 
             if recursive:
-                for result in get_connected_networks(output_obj, key=key, recursive=recursive, cache=cache):
+                for result in iter_connected_networks(output_obj, key=key, recursive=recursive, cache=cache):
                     yield result
 
 def get_connected_networks(objs, key=None, recursive=True):

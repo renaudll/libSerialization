@@ -1,19 +1,21 @@
-from core import export_dict
-from core import import_dict
-import plugin_json
-from plugin_json import *
+from core import *
 
 try:
-    import plugin_maya
     from plugin_maya import *
-    from plugin_maya_json import *
-    from plugin_yaml import *
-except ImportError:
+except ImportError, e:  # will raise when executed outside maya
     pass
 
-'''
-def _reload():
-    reload(core)
-    reload(plugin_json)
-    reload(plugin_maya)
-'''
+try:
+    from plugin_maya_json import *
+except ImportError, e:  # will raise when executed outside maya
+    pass
+
+try:
+    from plugin_json import *
+except ImportError, e:
+    pass
+
+try:
+    from plugin_yaml import *
+except ImportError, e:
+    pass

@@ -1,7 +1,13 @@
 import logging as _logging
 import sys
-import collections
-import functools
+
+__all__ = (
+    'get_class_module_root',
+    'get_class_namespace',
+    'create_class_instance',
+    'export_dict',
+    'import_dict'
+)
 
 logging = _logging.getLogger()
 logging.setLevel(_logging.WARNING)
@@ -9,109 +15,49 @@ logging.setLevel(_logging.WARNING)
 # constants
 TYPE_BASIC, TYPE_LIST, TYPE_DAGNODE, TYPE_COMPLEX, TYPE_NONE = range(5)
 
-# src: https://wiki.python.org/moin/PythonDecoratorLibrary#Memoize
-# modified to support kwargs
-class memoized(object):
-    '''Decorator. Caches a function's return value each time it is called.
-    If called later with the same arguments, the cached value is returned
-    (not reevaluated).
-    '''
-
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
-
-    def __call__(self, *args, **kwargs):
-        if not isinstance(args, collections.Hashable):
-            # uncacheable. a list, for instance.
-            # better to not cache than blow up.
-            return self.func(*args)
-
-        # Include kwargs
-        # src: http://stackoverflow.com/questions/6407993/how-to-memoize-kwargs
-        key = (args, frozenset(kwargs.items()))
-        if key in self.cache:
-            return self.cache[key]
-        else:
-            value = self.func(*args, **kwargs)
-            self.cache[key] = value
-            return value
-
-    def __repr__(self):
-        """Return the function's docstring."""
-        return self.func.__doc__
-
-    def __get__(self, obj, objtype):
-        """Support instance methods."""
-        return functools.partial(self.__call__, obj)
-
-def iter_subclasses_recursive(cls):
-    yield cls
-
-    try:
-        for sub_cls in cls.__subclasses__():
-            for x in iter_subclasses_recursive(sub_cls):
-                yield x
-    except TypeError:  # This will fail when encountering the 'type' datatype.
-        pass
 
 def get_class_module_root(cls):
+    """
+    Resolve the top namespace of a class associated module.
+
+    >>> from omtk.core.classCtrl import BaseCtrl
+    >>> BaseCtrl.__module__
+    'omtk.core.classCtrl'
+    >>> get_class_module_root(BaseCtrl)
+    'omtk'
+
+    :param cls: A class definition to inspect.
+    :return: A str instance representing the root module.
+    """
     return next(iter(cls.__module__.split('.')), None)
 
-
-def iter_module_subclasses_recursive(module_root, cls):
-    for sub_cls in iter_subclasses_recursive(cls):
-        cur_module_root = get_class_module_root(sub_cls)
-        if module_root == cur_module_root:
-            yield sub_cls
-
-@memoized
-def find_class_by_name(class_name, base_class=object, module=None):
-    if module is None:
-        iterator = iter_subclasses_recursive(base_class)
-    else:
-        #module = sys.modules[module]
-        iterator = iter_module_subclasses_recursive(module, base_class)
-
-    for cls in iterator:
-        if cls.__name__ == class_name:
-            return cls
-
-
-def find_class_by_namespace(class_namespace, base_class=object, module=None):
-    try:
-        for cls in base_class.__subclasses__():
-            # Compare the absolute class namespace
-            cls_path = get_class_namespace(cls)
-            if cls_path == class_namespace:
-                return cls
-
-            t = find_class_by_namespace(class_namespace, base_class=cls)
-            if t is not None:
-                return t
-    except Exception as e:
-        pass
-        #logging.warning("Error obtaining class definition for {0}: {1}".format(class_name, e))
-    return None
-
-
-def get_cls_cache(base_class=object, module=None):
+def get_class_namespace(cls):
     """
-    Store all subclasses of provided base class.
-    :param base_class: The base class to inspect.
-    :param module: If provided, all results will be class of provided module name.
-    :return: A dictionary where the key is the class name and the value is the class definition.
+    Resolve the full qualified namespace of a class.
+    This support multiple inheritance using Python's method resolution order.
+
+    >>> from omtk.rigs.rigArm import Arm
+    >>> get_class_namespace(Arm)
+    'Module.Limb.Arm'
+
+    :param cls: A class definition to inspect.
+    :return: A str instance representing the full qualified class namespace.
     """
-    result = {}
-    iter = iter_subclasses_recursive if module is None else functools.partial(iter_module_subclasses_recursive, module)
-    for cls in iter(base_class):
-        key = cls.__name__
-        result[key] = cls
-    return result
+    if not hasattr(cls, '__mro__'):
+        raise NotImplementedError("Class {0} is a Python old-style class and is unsupported.".format(cls))
+
+    return '.'.join(
+        reversed([subcls.__name__ for subcls in cls.__mro__ if subcls != object])
+    )
+
 
 def create_class_instance(cls):
     """
-    Create a class instance using the latest definition.
+    Create a class instance.
+    This will ensure that even if the provided class definition is outdated (because of a reload)
+    the latest definition (available from sys.modules) will be used.
+    :param cls: A class definition to inspect.
+    :return: A class instance.
     """
     class_def = getattr(sys.modules[cls.__module__], cls.__name__)
     assert (class_def is not None)
@@ -121,30 +67,6 @@ def create_class_instance(cls):
     except Exception as e:
         logging.error("Fatal error creating '{0}' instance: {1}".format(cls, str(e)))
         return None
-
-def get_class_namespace(cls):
-    if not hasattr(cls, '__mro__'):
-        raise NotImplementedError("Class {0} is a Python old-style class and is unsupported.".format(cls))
-
-    return '.'.join(
-        (subcls.__name__ for subcls in cls.__mro__ if subcls != object)
-    )
-    #
-    # # TODO: use inspect.get_mro
-    # if not isinstance(cls, object):
-    #     return None  # Todo: throw exception
-    # tokens = []
-    # while cls is not object:
-    #     tokens.append(cls.__name__)
-    #     cls = next(iter(cls.__bases__), None)
-    #
-    #     # Python old-style class will return
-    #     if cls is None:
-    #         break
-    # return '.'.join(reversed(tokens))
-
-
-
 
 #
 # Types definitions
@@ -212,7 +134,7 @@ def get_data_type(data):
     raise NotImplementedError("Unsupported object type {0} ({1})".format(data, type(data)))
 
 
-def export_dict(data, skip_None=True, recursive=True, **args):
+def export_dict(data, skip_None=True, recursive=True, cache=None, **args):
     """
     Export an object instance (data) into a dictionary of basic data types (including pymel.Pynode and pymel.Attribute).
 
@@ -223,18 +145,33 @@ def export_dict(data, skip_None=True, recursive=True, **args):
         **args:
 
     Returns: A dict instance containing only basic data types.
-
     """
+    if cache is None:
+        from cache import Cache
+        cache = Cache()
+
+    # Check if we already exported this data.
+    # This allow us to support cyclic references.
+    data_id = id(data)
+    result = cache.get_import_value_by_id(data_id)
+    if result is not None:
+        print("Using cache for {0}".format(data))
+        return result
+
     data_type = get_data_type(data)
     # object instance
     if data_type == TYPE_COMPLEX:
         data_cls = data.__class__
-        data_dict = {
+        result = {
             '_class': data_cls.__name__,
             '_class_namespace': get_class_namespace(data_cls),
             '_class_module': get_class_module_root(data_cls),
             '_uid': id(data)
         }
+
+        # Cache it as soon as possible since we might use recursivity.
+        cache.set_import_value_by_id(data_id, result)
+
         for key, val in (data.items() if isinstance(data, dict) else data.__dict__.items()):  # TODO: Clean
             # Ignore private keys (starting with an underscore)
             if key[0] == '_':
@@ -242,25 +179,30 @@ def export_dict(data, skip_None=True, recursive=True, **args):
 
             if not skip_None or val is not None:
                 if (data_type == TYPE_COMPLEX and recursive is True) or data_type == TYPE_LIST:
-                    val = export_dict(val, skip_None=skip_None, recursive=recursive, **args)
+                    val = export_dict(val, skip_None=skip_None, recursive=recursive, cache=cache, **args)
                 if not skip_None or val is not None:
-                    data_dict[key] = val
+                    result[key] = val
+    else:
 
-        return data_dict
+        # Handle other types of data
+        if data_type == TYPE_BASIC:
+            result = data
 
-    # Handle other types of data
-    elif data_type == TYPE_BASIC:
-        return data
+        # Handle iterable
+        elif data_type == TYPE_LIST:
+            result = [export_dict(v, skip_None=skip_None, cache=cache, **args) for v in data if not skip_None or v is not None]
 
-    # Handle iterable
-    elif data_type == TYPE_LIST:
-        return [export_dict(v, skip_None=skip_None, **args) for v in data if not skip_None or v is not None]
+        elif data_type == TYPE_DAGNODE:
+            result = data
 
-    elif data_type == TYPE_DAGNODE:
-        return data
+        else:
+            logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
+            result = None
 
-    logging.warning("[exportToBasicData] Unsupported type {0} ({1}) for {2}".format(type(data), data_type, data))
-    return None
+        cache.set_import_value_by_id(data_id, result)
+
+    return result
+
 
 
 def import_dict(data, cache=None, **kwargs):
@@ -276,7 +218,8 @@ def import_dict(data, cache=None, **kwargs):
     """
 
     if cache is None:
-        cache = get_cls_cache(**kwargs)
+        from cache import Cache
+        cache = Cache()
 
     #assert (data is not None)
     if isinstance(data, dict) and '_class' in data:
@@ -292,9 +235,9 @@ def import_dict(data, cache=None, **kwargs):
         # Otherwise we'll let it slip for now.
 
         if cls_module:
-            cls_def = find_class_by_name(cls_name, module=cls_module)
+            cls_def = cache.get_class_by_name(cls_name, module_name=cls_module)
         else:
-            cls_def = find_class_by_namespace(cls_name)
+            cls_def = cache.get_class_by_namespace(cls_name)
 
         if cls_def is None:
             logging.error("Can't create class instance for {0}, did you import to module?".format(cls_path))

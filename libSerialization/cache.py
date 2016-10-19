@@ -52,8 +52,8 @@ class Cache(object):
         else:
             cache = self._get_cls_cache_by_module(base_class=base_class)
         for cls in cache.values():
-            cls_namespace = get_class_namespace(cls)
-            if cls_namespace == cls_namespace:
+            cur_namespace = get_class_namespace(cls)
+            if cls_namespace == cur_namespace:
                 return cls
 
     def get_import_value_by_id(self, id, default=None):

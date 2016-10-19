@@ -450,6 +450,13 @@ def iter_networks_from_class(cls_name):
 def get_networks_from_class(cls_name):
     """
     Return all networks serialized from a specified base class.
+    Note that this don't check if the network itself is deserializable.
+
+    For example, if we are looking for the Rig class and the network class is RigElement.Rig
+    but RigElement is not defined, this will still return the network, however
+    calling libSerialization.import_network will return None.
+    # todo: add an option to pre-validate
+
     :param cls_name: A string representing the name of a class.
     :return: A list of pymel.nodetypes.Network.
     """

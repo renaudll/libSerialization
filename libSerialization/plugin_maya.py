@@ -239,7 +239,7 @@ def _set_attr(_plug, data, cache=None):
         raise NotImplementedError
 
 
-def _get_network_attr(attr, cache=None):
+def _get_network_attr(attr, fn_skip=None, cache=None):
     # Recursive
     if attr.isMulti():
         attr_indices = attr.getArrayIndices()
@@ -247,7 +247,7 @@ def _get_network_attr(attr, cache=None):
         if not attr_indices:
             return []
         num_logical_elements = max(attr_indices)+1
-        return [_get_network_attr(attr.elementByLogicalIndex(i), cache=cache) for i in range(num_logical_elements)]
+        return [_get_network_attr(attr.elementByLogicalIndex(i), fn_skip=fn_skip, cache=cache) for i in range(num_logical_elements)]
 
     if attr.type() == 'message':
         if not attr.isConnected():
@@ -256,7 +256,7 @@ def _get_network_attr(attr, cache=None):
         attr_input = attr.inputs()[0]
         # Network
         if hasattr(attr_input, '_class'):
-            return import_network(attr_input, cache=cache)
+            return import_network(attr_input, fn_skip=fn_skip, cache=cache)
         # Node
         else:
             return attr_input
@@ -340,7 +340,14 @@ def export_network(data, cache=None, **kwargs):
     return network
 
 
-def import_network(network, cache=None, **kwargs):
+def import_network(network, fn_skip=None, cache=None, **kwargs):
+    """
+    Recursively create class instances from provided network.
+    :param network: The network to read from.
+    :param fn_skip: A function taken a pymel.nodetypes.Network as argument that return True if we need to ignore a specific network.
+    :param cache: Used internally.
+    :return: An object instance corresponding to the provided network.
+    """
     if cache is None:
         from cache import Cache
         cache = Cache()
@@ -356,6 +363,11 @@ def import_network(network, cache=None, **kwargs):
     cached_obj = cache.get_import_value_by_id(network_id)
     if cached_obj is not None:
         return cached_obj
+
+    # Check if the object is blacklisted. If it is, we'll still add it to the cache in case we encounter it again.
+    if fn_skip and fn_skip(network):
+        cache.set_import_value_by_id(network_id, None)
+        return None
 
     cls_name = network.getAttr('_class')
 
@@ -403,7 +415,7 @@ def import_network(network, cache=None, **kwargs):
 
     for attr_name, attr in attrs_by_longname.iteritems():
         # logging.debug('Importing attribute {0} from {1}'.format(key, _network.name()))
-        val = _get_network_attr(attr, cache=cache)
+        val = _get_network_attr(attr, fn_skip=fn_skip, cache=cache)
         # if hasattr(obj, key):
         if isinstance(obj, dict):
             obj[attr_name.longName()] = val
@@ -462,12 +474,14 @@ def get_networks_from_class(cls_name):
     """
     return list(iter_networks_from_class(cls_name))
 
-def iter_connected_networks(objs, key=None, recursive=True, cache=None):
+def iter_connected_networks(objs, key=None, key_skip=None, recursive=True, cache=None):
     """
     Inspect provided pymel.nodetypes.DagNode connections in search of serialized networks.
     By providing a function pointer, specific networks can be targeted.
     :param objs: A list of pymel.nodetypes.DagNode to inspect.
-    :param key: A function to filter specific networks
+    :param key: A function to filter specific networks.
+    :param key_skip: A function that receive a pymel.nodetypes.Network as input and return True if
+    the network is blacklisted. If the network is blacklisted, it will not be iterated through.
     :param recursive: If true, will inspect recursively.
     :param cache: Used internally, do not overwrite.
     :yield: pymel.nodetypes.Networks
@@ -488,6 +502,11 @@ def iter_connected_networks(objs, key=None, recursive=True, cache=None):
         # Remember this object in the cache
         cache.append(obj)
 
+        # Ignore this object if it is blacklisted.
+        # However still keep it in the cache in case we encounter it again.
+        if key_skip and key_skip(obj):
+            continue
+
         # Ignore any object that don't have a message attribute.
         # This is equivalent to searching for dagnodes only.
         if not obj.hasAttr('message'):
@@ -506,23 +525,22 @@ def iter_connected_networks(objs, key=None, recursive=True, cache=None):
             if output_obj is obj:
                 continue
 
-            # Ensure we ignore the object next time since we already saw it once.
-            cache.append(output_obj)
-
             if key is None or key(output_obj):
                 yield output_obj
 
             if recursive:
-                for result in iter_connected_networks(output_obj, key=key, recursive=recursive, cache=cache):
+                for result in iter_connected_networks(output_obj, key=key, key_skip=key_skip, recursive=recursive, cache=cache):
                     yield result
 
-def get_connected_networks(objs, key=None, recursive=True):
+def get_connected_networks(objs, key=None, key_skip=None, recursive=True):
     """
     Inspect provided pymel.nodetypes.DagNode connections in search of serialized networks.
     By providing a function pointer, specific networks can be targeted.
     :param objs: A list of pymel.nodetypes.DagNode to inspect.
     :param key: A function to filter specific networks
+    :param key_skip: A function that receive a pymel.nodetypes.Network as input and return True if
+    the network is blacklisted. If the network is blacklisted, it will not be iterated through.
     :param recursive: If true, will inspect recursively.
     :return: A list of pymel.nodetypes.Network
     """
-    return list(iter_connected_networks(objs, key=key, recursive=recursive))
+    return list(iter_connected_networks(objs, key=key, key_skip=key_skip, recursive=recursive))
